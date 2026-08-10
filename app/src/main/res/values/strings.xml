@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">اتوپی</string>
+    <string name="accessibility_service_label">موتور اجرای اتوپی</string>
+    <string name="accessibility_service_description">شناسایی ساختاری المان‌های برنامهٔ انتخاب‌شده، ضبط عمل‌های کاربر و اجرای دوبارهٔ گردش‌کار. داده‌ها فقط روی دستگاه نگه‌داری می‌شوند و فیلدهای گذرواژه ضبط نمی‌شوند.</string>
+
+    <string name="home_title">گردش‌کارهای من</string>
+    <string name="service_enabled">موتور اتوماسیون آماده است</string>
+    <string name="service_disabled">برای ضبط و اجرا، سرویس دسترس‌پذیری را فعال کنید</string>
+    <string name="open_accessibility">تنظیمات دسترس‌پذیری</string>
+    <string name="privacy_title">شفاف و محلی</string>
+    <string name="privacy_body">اتوپی فقط هنگام ضبط یا اجرا، درخت دسترس‌پذیری برنامهٔ انتخاب‌شده را می‌خواند. هیچ داده‌ای به اینترنت فرستاده نمی‌شود و متن فیلدهای گذرواژه هرگز ذخیره نمی‌شود.</string>
+    <string name="empty_workflows">هنوز گردش‌کاری نساخته‌اید</string>
+    <string name="empty_workflows_hint">یک برنامه را انتخاب کنید، کارها را یک بار انجام دهید و بعد همان مسیر را بدون مختصات اجرا کنید.</string>
+    <string name="new_workflow">گردش‌کار جدید</string>
+    <string name="steps_count">%1$d مرحله</string>
+
+    <string name="workflow_new_title">ساخت گردش‌کار</string>
+    <string name="workflow_edit_title">ویرایش گردش‌کار</string>
+    <string name="workflow_name">نام گردش‌کار</string>
+    <string name="workflow_name_hint">مثلاً ثبت گزارش روزانه</string>
+    <string name="target_app">برنامهٔ هدف</string>
+    <string name="choose_app">انتخاب برنامه</string>
+    <string name="save">ذخیره</string>
+    <string name="record">شروع ضبط</string>
+    <string name="run">اجرای گردش‌کار</string>
+    <string name="clear_steps">پاک‌کردن مراحل</string>
+    <string name="delete_workflow">حذف گردش‌کار</string>
+    <string name="record_help">بعد از شروع ضبط، برنامهٔ هدف باز می‌شود. کلیک، لمس طولانی، ورود متن، اسکرول و کلید بازگشت ثبت می‌شوند.</string>
+    <string name="strict_help">اجرا فقط وقتی انجام می‌شود که یک المان یکتای معنایی پیدا شود؛ در حالت مبهم، اتوپی متوقف می‌شود تا روی المان اشتباه نزند.</string>
+    <string name="steps_title">مراحل ضبط‌شده</string>
+    <string name="empty_steps">هنوز مرحله‌ای ضبط نشده است.</string>
+    <string name="field_required">این فیلد الزامی است</string>
+    <string name="app_required">ابتدا برنامهٔ هدف را انتخاب کنید</string>
+    <string name="saved">ذخیره شد</string>
+    <string name="service_not_ready">سرویس اتوپی فعال یا متصل نیست</string>
+    <string name="no_steps">برای اجرا، ابتدا چند مرحله ضبط کنید</string>
+    <string name="confirm_delete_title">حذف گردش‌کار؟</string>
+    <string name="confirm_delete_message">این گردش‌کار و همهٔ مراحل آن برای همیشه حذف می‌شوند.</string>
+    <string name="confirm_clear_title">همهٔ مراحل پاک شوند؟</string>
+    <string name="cancel">انصراف</string>
+    <string name="delete">حذف</string>
+    <string name="clear">پاک‌کردن</string>
+
+    <string name="app_picker_title">انتخاب برنامهٔ هدف</string>
+    <string name="search_apps">جست‌وجوی برنامه</string>
+    <string name="no_apps">برنامه‌ای پیدا نشد</string>
+
+    <string name="overlay_recording">در حال ضبط</string>
+    <string name="overlay_running">در حال اجرا</string>
+    <string name="overlay_done">اجرا کامل شد</string>
+    <string name="overlay_failed">اجرا متوقف شد</string>
+    <string name="undo">حذف آخرین</string>
+    <string name="stop">پایان</string>
+    <string name="close">بستن</string>
+    <string name="step_progress">مرحله %1$d از %2$d</string>
+    <string name="recorded_count">%1$d مرحله ثبت شد</string>
+    <string name="record_password_skipped">فیلد گذرواژه برای امنیت ثبت نشد</string>
+    <string name="workflow_complete">گردش‌کار با موفقیت اجرا شد</string>
+    <string name="target_cannot_launch">برنامهٔ هدف قابل اجرا نیست</string>
+
+    <string name="action_click">کلیک</string>
+    <string name="action_long_click">لمس طولانی</string>
+    <string name="action_set_text">ورود متن</string>
+    <string name="action_scroll_up">اسکرول به بالا</string>
+    <string name="action_scroll_down">اسکرول به پایین</string>
+    <string name="action_scroll_left">اسکرول به چپ</string>
+    <string name="action_scroll_right">اسکرول به راست</string>
+    <string name="action_back">بازگشت</string>
+    <string name="unknown_element">المان بدون برچسب</string>
+    <string name="text_value_hidden">متن: %1$s</string>
+    <string name="low_confidence">شناسهٔ معنایی ضعیف؛ ممکن است اجرا متوقف شود</string>
+</resources>
