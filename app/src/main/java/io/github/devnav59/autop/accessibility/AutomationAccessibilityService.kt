@@ -70,6 +70,8 @@ class AutomationAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        systemConnected = true
+        lastCommandFailure = null
         // The Activity may be restored a little earlier than Android reconnects the accessibility
         // service after an install/update. Execute the user's queued tap as soon as binding ends.
         handler.post { runPendingCommand() }
@@ -112,8 +114,15 @@ class AutomationAccessibilityService : AccessibilityService() {
         stopSession(openEditor = false)
     }
 
+    override fun onUnbind(intent: Intent?): Boolean {
+        systemConnected = false
+        if (instance === this) instance = null
+        return super.onUnbind(intent)
+    }
+
     override fun onDestroy() {
         stopSession(openEditor = false)
+        systemConnected = false
         if (instance === this) instance = null
         super.onDestroy()
     }
@@ -133,28 +142,31 @@ class AutomationAccessibilityService : AccessibilityService() {
     }
 
     fun startRecording(workflow: Workflow): Boolean {
-        return try {
-            stopSession(openEditor = false)
-            state = SessionState.Recording(
-                workflowId = workflow.id,
-                targetPackage = workflow.targetPackage,
-                recordedCount = workflow.steps.size,
-            )
+        lastCommandFailure = null
+        runCatching { stopSession(openEditor = false) }
+            .onFailure { reportServiceError("آماده‌سازی ضبط", it) }
+
+        // From this point recording is active. Overlay/launcher failures are recoverable and must
+        // never turn into the misleading “command could not start” result.
+        state = SessionState.Recording(
+            workflowId = workflow.id,
+            targetPackage = workflow.targetPackage,
+            recordedCount = workflow.steps.size,
+        )
+        runCatching {
             showOverlay()
             updateOverlay()
-            // Recording is already active at this point. Failure to resolve/launch another app
-            // must not be reported as an accessibility-service connection failure.
-            launchTargetApp(workflow.targetPackage)
-            true
-        } catch (error: Exception) {
-            reportServiceError("شروع ضبط", error)
-            stopSession(openEditor = false)
-            false
-        }
+        }.onFailure { reportServiceError("نمایش کنترل ضبط", it) }
+        launchTargetApp(workflow.targetPackage)
+        return true
     }
 
     fun startReplay(workflow: Workflow): Boolean {
-        if (workflow.steps.isEmpty()) return false
+        lastCommandFailure = null
+        if (workflow.steps.isEmpty()) {
+            lastCommandFailure = getString(R.string.no_steps)
+            return false
+        }
         return try {
             stopSession(openEditor = false)
             state = SessionState.Replaying(workflow = workflow)
@@ -171,7 +183,11 @@ class AutomationAccessibilityService : AccessibilityService() {
     }
 
     private fun launchTargetApp(targetPackage: String) {
-        val launchIntent = packageManager.getLaunchIntentForPackage(targetPackage)
+        val launchIntent = runCatching {
+            packageManager.getLaunchIntentForPackage(targetPackage)
+        }.onFailure {
+            Log.w(TAG, "Could not resolve target package $targetPackage", it)
+        }.getOrNull()
         if (launchIntent == null) {
             Toast.makeText(this, R.string.target_open_manually, Toast.LENGTH_LONG).show()
             return
@@ -639,7 +655,8 @@ class AutomationAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun reportServiceError(stage: String, error: Exception) {
+    private fun reportServiceError(stage: String, error: Throwable) {
+        lastCommandFailure = "$stage: ${error.javaClass.simpleName}${error.message?.let { " — $it" }.orEmpty()}"
         Log.e(TAG, "$stage failed", error)
         runCatching {
             val report = buildString {
@@ -655,7 +672,7 @@ class AutomationAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
         if (now - lastErrorToastAt > ERROR_TOAST_INTERVAL_MS) {
             lastErrorToastAt = now
-            Toast.makeText(this, "یک رویداد قابل خواندن نبود؛ ضبط متوقف نشد", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "$stage با خطا روبه‌رو شد؛ سرویس ادامه می‌دهد", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -908,10 +925,18 @@ class AutomationAccessibilityService : AccessibilityService() {
         private var pendingCommand: PendingCommand? = null
 
         @Volatile
+        private var systemConnected = false
+
+        @Volatile
+        private var lastCommandFailure: String? = null
+
+        @Volatile
         var instance: AutomationAccessibilityService? = null
             private set
 
-        fun isConnected(): Boolean = instance != null
+        fun isConnected(): Boolean = systemConnected && instance != null
+
+        fun lastCommandFailure(): String? = lastCommandFailure
 
         fun requestRecording(context: Context, workflow: Workflow): CommandRequestResult =
             requestCommand(context, PendingCommandType.RECORD, workflow)
@@ -924,7 +949,9 @@ class AutomationAccessibilityService : AccessibilityService() {
             type: PendingCommandType,
             workflow: Workflow,
         ): CommandRequestResult {
-            instance?.let { service ->
+            val connectedService = instance?.takeIf { systemConnected }
+            connectedService?.let { service ->
+                lastCommandFailure = null
                 val started = when (type) {
                     PendingCommandType.RECORD -> service.startRecording(workflow)
                     PendingCommandType.REPLAY -> service.startReplay(workflow)

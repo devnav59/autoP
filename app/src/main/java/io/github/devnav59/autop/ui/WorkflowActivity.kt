@@ -163,7 +163,13 @@ class WorkflowActivity : BaseActivity() {
             }
             AutomationAccessibilityService.CommandRequestResult.DISABLED -> showServiceError()
             AutomationAccessibilityService.CommandRequestResult.FAILED -> {
-                Snackbar.make(binding.root, R.string.service_command_failed, Snackbar.LENGTH_LONG).show()
+                val reason = AutomationAccessibilityService.lastCommandFailure()
+                    ?: getString(R.string.service_command_failed)
+                MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.service_command_failed_title)
+                    .setMessage(reason)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
             }
         }
     }

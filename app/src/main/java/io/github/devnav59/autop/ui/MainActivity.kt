@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import androidx.recyclerview.widget.LinearLayoutManager
+import io.github.devnav59.autop.BuildConfig
 import io.github.devnav59.autop.R
 import io.github.devnav59.autop.accessibility.AutomationAccessibilityService
 import io.github.devnav59.autop.data.WorkflowRepository
@@ -20,6 +21,7 @@ class MainActivity : BaseActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         repository = WorkflowRepository(this)
+        binding.toolbar.subtitle = "نسخه ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
         adapter = WorkflowAdapter { workflow ->
             startActivity(

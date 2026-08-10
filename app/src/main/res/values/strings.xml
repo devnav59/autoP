@@ -9,6 +9,7 @@
     <string name="service_connecting">فرمان ذخیره شد؛ منتظر اتصال «موتور اتوپی — نسخه Release» است</string>
     <string name="service_disabled">برای ضبط، «موتور اتوپی — نسخه Release» را فعال کنید</string>
     <string name="service_command_failed">سرویس متصل شد اما شروع فرمان ممکن نبود</string>
+    <string name="service_command_failed_title">جزئیات خطای شروع فرمان</string>
     <string name="open_accessibility">تنظیمات دسترس‌پذیری</string>
     <string name="privacy_title">شفاف و محلی</string>
     <string name="privacy_body">اتوپی فقط هنگام ضبط یا اجرا، درخت دسترس‌پذیری برنامهٔ انتخاب‌شده را می‌خواند. هیچ داده‌ای به اینترنت فرستاده نمی‌شود و متن فیلدهای گذرواژه هرگز ذخیره نمی‌شود.</string>
