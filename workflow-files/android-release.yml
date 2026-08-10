@@ -94,9 +94,10 @@ jobs:
             KEY_ALIAS="$KEY_ALIAS_SECRET"
             KEY_PASSWORD="$KEY_PASSWORD_SECRET"
             SIGNING_MODE="repository-secret"
-          elif [[ "$supplied" -eq 0 ]]; then
+          else
             # A release APK must be signed. For test installations, create an ephemeral key when
-            # the repository owner has not configured signing secrets yet.
+            # all four repository secrets are not available. Partially configured values are
+            # ignored together so a stale secret cannot break the build.
             STORE_PASSWORD="autop-temporary-signing"
             KEY_ALIAS="autop-temporary"
             KEY_PASSWORD="$STORE_PASSWORD"
@@ -108,10 +109,7 @@ jobs:
               -keypass "$KEY_PASSWORD" \
               -keyalg RSA -keysize 4096 -validity 3650 \
               -dname "CN=autoP Temporary Build, O=autoP, C=GB"
-            echo "::warning::Signing secrets are absent. This build uses a temporary certificate and cannot update another installation."
-          else
-            echo "Signing secrets are only partially configured. Set all four secrets or remove all four." >&2
-            exit 1
+            echo "::warning::$supplied of 4 signing secrets were found. This build uses a temporary certificate and cannot update another installation."
           fi
 
           keytool -list -keystore "$KEYSTORE" \
