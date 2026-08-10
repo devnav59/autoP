@@ -1,11 +1,9 @@
 package io.github.devnav59.autop.ui
 
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
-import android.view.accessibility.AccessibilityManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import io.github.devnav59.autop.R
 import io.github.devnav59.autop.accessibility.AutomationAccessibilityService
@@ -49,30 +47,20 @@ class MainActivity : BaseActivity() {
         adapter.submitList(workflows)
         binding.emptyState.visibility = if (workflows.isEmpty()) View.VISIBLE else View.GONE
 
-        val enabled = isServiceEnabled()
+        val enabled = AutomationAccessibilityService.isEnabledInSettings(this)
+        val connected = AutomationAccessibilityService.isConnected()
         binding.serviceStatus.setText(
-            if (enabled && AutomationAccessibilityService.isConnected()) {
-                R.string.service_enabled
-            } else {
-                R.string.service_disabled
+            when {
+                connected -> R.string.service_enabled
+                enabled -> R.string.service_connecting
+                else -> R.string.service_disabled
             },
         )
         binding.serviceIndicator.setBackgroundResource(
-            if (enabled && AutomationAccessibilityService.isConnected()) {
-                R.drawable.bg_status_on
-            } else {
-                R.drawable.bg_status_off
-            },
+            if (connected) R.drawable.bg_status_on else R.drawable.bg_status_off,
         )
-        binding.openAccessibility.visibility = if (enabled) View.GONE else View.VISIBLE
-    }
-
-    private fun isServiceEnabled(): Boolean {
-        val manager = getSystemService(AccessibilityManager::class.java)
-        return manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any {
-            val service = it.resolveInfo?.serviceInfo
-            service?.packageName == packageName &&
-                service.name == AutomationAccessibilityService::class.java.name
-        }
+        // Keep settings reachable while enabled-but-not-bound so the user can toggle the service
+        // after an APK update on OEMs that do not reconnect it automatically.
+        binding.openAccessibility.visibility = if (connected) View.GONE else View.VISIBLE
     }
 }

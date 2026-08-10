@@ -6,7 +6,9 @@
 
     <string name="home_title">گردش‌کارهای من</string>
     <string name="service_enabled">موتور اتوماسیون آماده است</string>
+    <string name="service_connecting">دسترسی روشن است؛ فرمان ذخیره شد و منتظر اتصال سرویس است</string>
     <string name="service_disabled">برای ضبط و اجرا، سرویس دسترس‌پذیری را فعال کنید</string>
+    <string name="service_command_failed">سرویس متصل شد اما شروع فرمان ممکن نبود</string>
     <string name="open_accessibility">تنظیمات دسترس‌پذیری</string>
     <string name="privacy_title">شفاف و محلی</string>
     <string name="privacy_body">اتوپی فقط هنگام ضبط یا اجرا، درخت دسترس‌پذیری برنامهٔ انتخاب‌شده را می‌خواند. هیچ داده‌ای به اینترنت فرستاده نمی‌شود و متن فیلدهای گذرواژه هرگز ذخیره نمی‌شود.</string>

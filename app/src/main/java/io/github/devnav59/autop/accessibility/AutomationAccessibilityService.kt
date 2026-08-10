@@ -1,12 +1,16 @@
 package io.github.devnav59.autop.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -15,6 +19,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityManager
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
@@ -58,6 +63,9 @@ class AutomationAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         repository = WorkflowRepository(this)
         instance = this
+        // The Activity may be restored a little earlier than Android reconnects the accessibility
+        // service after an install/update. Execute the user's queued tap as soon as binding ends.
+        handler.post { runPendingCommand() }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -101,6 +109,20 @@ class AutomationAccessibilityService : AccessibilityService() {
         stopSession(openEditor = false)
         if (instance === this) instance = null
         super.onDestroy()
+    }
+
+    private fun runPendingCommand() {
+        val command = synchronized(commandLock) {
+            pendingCommand.also { pendingCommand = null }
+        } ?: return
+        if (System.currentTimeMillis() - command.requestedAt > COMMAND_TIMEOUT_MS) return
+        val started = when (command.type) {
+            PendingCommandType.RECORD -> startRecording(command.workflowId)
+            PendingCommandType.REPLAY -> startReplay(command.workflowId)
+        }
+        if (!started) {
+            Toast.makeText(this, R.string.service_command_failed, Toast.LENGTH_LONG).show()
+        }
     }
 
     fun startRecording(workflowId: String): Boolean {
@@ -844,6 +866,21 @@ class AutomationAccessibilityService : AccessibilityService() {
     )
     private data class ScrollPosition(val x: Int?, val y: Int?)
 
+    enum class CommandRequestResult {
+        STARTED,
+        QUEUED_UNTIL_CONNECTED,
+        DISABLED,
+        FAILED,
+    }
+
+    private enum class PendingCommandType { RECORD, REPLAY }
+
+    private data class PendingCommand(
+        val type: PendingCommandType,
+        val workflowId: String,
+        val requestedAt: Long = System.currentTimeMillis(),
+    )
+
     companion object {
         private const val TEXT_DEBOUNCE_MS = 650L
         private const val VALUE_DEBOUNCE_MS = 550L
@@ -852,12 +889,68 @@ class AutomationAccessibilityService : AccessibilityService() {
         private const val RETRY_MS = 350L
         private const val STEP_TIMEOUT_MS = 15_000L
         private const val ERROR_TOAST_INTERVAL_MS = 5_000L
+        private const val COMMAND_TIMEOUT_MS = 30_000L
         private const val TAG = "AutoPAccessibility"
+        private val commandLock = Any()
+
+        @Volatile
+        private var pendingCommand: PendingCommand? = null
 
         @Volatile
         var instance: AutomationAccessibilityService? = null
             private set
 
         fun isConnected(): Boolean = instance != null
+
+        fun requestRecording(context: Context, workflowId: String): CommandRequestResult =
+            requestCommand(context, PendingCommandType.RECORD, workflowId)
+
+        fun requestReplay(context: Context, workflowId: String): CommandRequestResult =
+            requestCommand(context, PendingCommandType.REPLAY, workflowId)
+
+        private fun requestCommand(
+            context: Context,
+            type: PendingCommandType,
+            workflowId: String,
+        ): CommandRequestResult {
+            instance?.let { service ->
+                val started = when (type) {
+                    PendingCommandType.RECORD -> service.startRecording(workflowId)
+                    PendingCommandType.REPLAY -> service.startReplay(workflowId)
+                }
+                return if (started) CommandRequestResult.STARTED else CommandRequestResult.FAILED
+            }
+            if (!isEnabledInSettings(context)) return CommandRequestResult.DISABLED
+            synchronized(commandLock) {
+                pendingCommand = PendingCommand(type, workflowId)
+            }
+            return CommandRequestResult.QUEUED_UNTIL_CONNECTED
+        }
+
+        fun isEnabledInSettings(context: Context): Boolean {
+            val expected = ComponentName(context, AutomationAccessibilityService::class.java)
+            val secureSettingMatch = runCatching {
+                Settings.Secure.getString(
+                    context.contentResolver,
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                ).orEmpty()
+                    .split(':')
+                    .mapNotNull(ComponentName::unflattenFromString)
+                    .any { component ->
+                        component.packageName == expected.packageName &&
+                            component.className == expected.className
+                    }
+            }.getOrDefault(false)
+            if (secureSettingMatch) return true
+
+            return runCatching {
+                val manager = context.getSystemService(AccessibilityManager::class.java)
+                manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any {
+                    val info = it.resolveInfo?.serviceInfo ?: return@any false
+                    val className = if (info.name.startsWith('.')) info.packageName + info.name else info.name
+                    info.packageName == expected.packageName && className == expected.className
+                }
+            }.getOrDefault(false)
+        }
     }
 }

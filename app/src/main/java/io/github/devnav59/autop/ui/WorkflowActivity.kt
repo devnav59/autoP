@@ -131,11 +131,9 @@ class WorkflowActivity : BaseActivity() {
 
     private fun startRecording() {
         val workflow = persist(showMessage = false) ?: return
-        val service = AutomationAccessibilityService.instance
-        if (service == null || !service.startRecording(workflow.id)) {
-            showServiceError()
-            return
-        }
+        handleCommandResult(
+            AutomationAccessibilityService.requestRecording(this, workflow.id),
+        )
         // The service launches the selected app. Keeping this task in history makes the overlay's
         // “finish” button return to this editor without creating duplicate screens.
     }
@@ -146,9 +144,25 @@ class WorkflowActivity : BaseActivity() {
             Snackbar.make(binding.root, R.string.no_steps, Snackbar.LENGTH_SHORT).show()
             return
         }
-        val service = AutomationAccessibilityService.instance
-        if (service == null || !service.startReplay(workflow.id)) {
-            showServiceError()
+        handleCommandResult(
+            AutomationAccessibilityService.requestReplay(this, workflow.id),
+        )
+    }
+
+    private fun handleCommandResult(
+        result: AutomationAccessibilityService.CommandRequestResult,
+    ) {
+        when (result) {
+            AutomationAccessibilityService.CommandRequestResult.STARTED -> Unit
+            AutomationAccessibilityService.CommandRequestResult.QUEUED_UNTIL_CONNECTED -> {
+                Snackbar.make(binding.root, R.string.service_connecting, Snackbar.LENGTH_LONG)
+                    .setAction(R.string.open_accessibility) {
+                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }
+                    .show()
+            }
+            AutomationAccessibilityService.CommandRequestResult.DISABLED,
+            AutomationAccessibilityService.CommandRequestResult.FAILED -> showServiceError()
         }
     }
 
