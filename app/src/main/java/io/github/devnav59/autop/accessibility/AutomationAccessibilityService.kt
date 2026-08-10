@@ -618,7 +618,7 @@ class AutomationAccessibilityService : AccessibilityService() {
             filesDir.resolve("last-service-error.txt").writeText(report)
         }
         (state as? SessionState.Recording)?.lastWarning = "یک رویداد ناسازگار رد شد؛ ضبط ادامه دارد"
-        updateOverlay()
+        runCatching { updateOverlay() }
         val now = System.currentTimeMillis()
         if (now - lastErrorToastAt > ERROR_TOAST_INTERVAL_MS) {
             lastErrorToastAt = now
