@@ -124,21 +124,16 @@ class AutomationAccessibilityService : AccessibilityService() {
         } ?: return
         if (System.currentTimeMillis() - command.requestedAt > COMMAND_TIMEOUT_MS) return
         val started = when (command.type) {
-            PendingCommandType.RECORD -> startRecording(command.workflowId)
-            PendingCommandType.REPLAY -> startReplay(command.workflowId)
+            PendingCommandType.RECORD -> startRecording(command.workflow)
+            PendingCommandType.REPLAY -> startReplay(command.workflow)
         }
         if (!started) {
             Toast.makeText(this, R.string.service_command_failed, Toast.LENGTH_LONG).show()
         }
     }
 
-    fun startRecording(workflowId: String): Boolean {
+    fun startRecording(workflow: Workflow): Boolean {
         return try {
-            val workflow = repository.get(workflowId) ?: return false
-            val launchIntent = packageManager.getLaunchIntentForPackage(workflow.targetPackage) ?: run {
-                Toast.makeText(this, R.string.target_cannot_launch, Toast.LENGTH_LONG).show()
-                return false
-            }
             stopSession(openEditor = false)
             state = SessionState.Recording(
                 workflowId = workflow.id,
@@ -147,8 +142,9 @@ class AutomationAccessibilityService : AccessibilityService() {
             )
             showOverlay()
             updateOverlay()
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-            startActivity(launchIntent)
+            // Recording is already active at this point. Failure to resolve/launch another app
+            // must not be reported as an accessibility-service connection failure.
+            launchTargetApp(workflow.targetPackage)
             true
         } catch (error: Exception) {
             reportServiceError("شروع ضبط", error)
@@ -157,20 +153,14 @@ class AutomationAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun startReplay(workflowId: String): Boolean {
+    fun startReplay(workflow: Workflow): Boolean {
+        if (workflow.steps.isEmpty()) return false
         return try {
-            val workflow = repository.get(workflowId) ?: return false
-            if (workflow.steps.isEmpty()) return false
-            val launchIntent = packageManager.getLaunchIntentForPackage(workflow.targetPackage) ?: run {
-                Toast.makeText(this, R.string.target_cannot_launch, Toast.LENGTH_LONG).show()
-                return false
-            }
             stopSession(openEditor = false)
             state = SessionState.Replaying(workflow = workflow)
             showOverlay()
             updateOverlay()
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-            startActivity(launchIntent)
+            launchTargetApp(workflow.targetPackage)
             scheduleReplay(1_000)
             true
         } catch (error: Exception) {
@@ -178,6 +168,20 @@ class AutomationAccessibilityService : AccessibilityService() {
             stopSession(openEditor = false)
             false
         }
+    }
+
+    private fun launchTargetApp(targetPackage: String) {
+        val launchIntent = packageManager.getLaunchIntentForPackage(targetPackage)
+        if (launchIntent == null) {
+            Toast.makeText(this, R.string.target_open_manually, Toast.LENGTH_LONG).show()
+            return
+        }
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        runCatching { startActivity(launchIntent) }
+            .onFailure {
+                Log.w(TAG, "Could not launch target package $targetPackage", it)
+                Toast.makeText(this, R.string.target_open_manually, Toast.LENGTH_LONG).show()
+            }
     }
 
     private fun recordEvent(session: SessionState.Recording, event: AccessibilityEvent) {
@@ -884,7 +888,7 @@ class AutomationAccessibilityService : AccessibilityService() {
 
     private data class PendingCommand(
         val type: PendingCommandType,
-        val workflowId: String,
+        val workflow: Workflow,
         val requestedAt: Long = System.currentTimeMillis(),
     )
 
@@ -909,29 +913,29 @@ class AutomationAccessibilityService : AccessibilityService() {
 
         fun isConnected(): Boolean = instance != null
 
-        fun requestRecording(context: Context, workflowId: String): CommandRequestResult =
-            requestCommand(context, PendingCommandType.RECORD, workflowId)
+        fun requestRecording(context: Context, workflow: Workflow): CommandRequestResult =
+            requestCommand(context, PendingCommandType.RECORD, workflow)
 
-        fun requestReplay(context: Context, workflowId: String): CommandRequestResult =
-            requestCommand(context, PendingCommandType.REPLAY, workflowId)
+        fun requestReplay(context: Context, workflow: Workflow): CommandRequestResult =
+            requestCommand(context, PendingCommandType.REPLAY, workflow)
 
         private fun requestCommand(
             context: Context,
             type: PendingCommandType,
-            workflowId: String,
+            workflow: Workflow,
         ): CommandRequestResult {
             instance?.let { service ->
                 val started = when (type) {
-                    PendingCommandType.RECORD -> service.startRecording(workflowId)
-                    PendingCommandType.REPLAY -> service.startReplay(workflowId)
+                    PendingCommandType.RECORD -> service.startRecording(workflow)
+                    PendingCommandType.REPLAY -> service.startReplay(workflow)
                 }
                 return if (started) CommandRequestResult.STARTED else CommandRequestResult.FAILED
             }
             val enabled = isEnabledInSettings(context)
-            // Queue even when OEM Settings has not refreshed its secure-service list yet. If the
-            // user enables/toggles this exact service, onServiceConnected consumes the command.
+            // Keep the exact saved workflow snapshot. This avoids a second file lookup in the
+            // service during the short Activity/service reconnection race.
             synchronized(commandLock) {
-                pendingCommand = PendingCommand(type, workflowId)
+                pendingCommand = PendingCommand(type, workflow)
             }
             return if (enabled) {
                 CommandRequestResult.QUEUED_UNTIL_CONNECTED

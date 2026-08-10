@@ -132,7 +132,7 @@ class WorkflowActivity : BaseActivity() {
     private fun startRecording() {
         val workflow = persist(showMessage = false) ?: return
         handleCommandResult(
-            AutomationAccessibilityService.requestRecording(this, workflow.id),
+            AutomationAccessibilityService.requestRecording(this, workflow),
         )
         // The service launches the selected app. Keeping this task in history makes the overlay's
         // “finish” button return to this editor without creating duplicate screens.
@@ -145,7 +145,7 @@ class WorkflowActivity : BaseActivity() {
             return
         }
         handleCommandResult(
-            AutomationAccessibilityService.requestReplay(this, workflow.id),
+            AutomationAccessibilityService.requestReplay(this, workflow),
         )
     }
 

@@ -63,6 +63,7 @@
     <string name="record_password_skipped">فیلد گذرواژه برای امنیت ثبت نشد</string>
     <string name="workflow_complete">گردش‌کار با موفقیت اجرا شد</string>
     <string name="target_cannot_launch">برنامهٔ هدف قابل اجرا نیست</string>
+    <string name="target_open_manually">ضبط فعال شد؛ برنامهٔ هدف را دستی باز کنید</string>
 
     <string name="action_click">کلیک</string>
     <string name="action_long_click">لمس طولانی</string>
