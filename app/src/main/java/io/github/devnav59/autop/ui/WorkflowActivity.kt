@@ -161,8 +161,10 @@ class WorkflowActivity : BaseActivity() {
                     }
                     .show()
             }
-            AutomationAccessibilityService.CommandRequestResult.DISABLED,
-            AutomationAccessibilityService.CommandRequestResult.FAILED -> showServiceError()
+            AutomationAccessibilityService.CommandRequestResult.DISABLED -> showServiceError()
+            AutomationAccessibilityService.CommandRequestResult.FAILED -> {
+                Snackbar.make(binding.root, R.string.service_command_failed, Snackbar.LENGTH_LONG).show()
+            }
         }
     }
 

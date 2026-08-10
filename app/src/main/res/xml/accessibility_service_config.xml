@@ -2,9 +2,9 @@
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeAllMask"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagRequestFilterKeyEvents|flagIncludeNotImportantViews"
-    android:canRequestFilterKeyEvents="true"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
     android:description="@string/accessibility_service_description"
+    android:isAccessibilityTool="true"
     android:notificationTimeout="50"
     android:settingsActivity="io.github.devnav59.autop.ui.MainActivity" />

@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">اتوپی</string>
-    <string name="accessibility_service_label">موتور اجرای اتوپی</string>
+    <string name="accessibility_service_label">موتور اتوپی — نسخه Release</string>
     <string name="accessibility_service_description">شناسایی ساختاری المان‌های برنامهٔ انتخاب‌شده، ضبط عمل‌های کاربر و اجرای دوبارهٔ گردش‌کار. داده‌ها فقط روی دستگاه نگه‌داری می‌شوند و فیلدهای گذرواژه ضبط نمی‌شوند.</string>
 
     <string name="home_title">گردش‌کارهای من</string>
     <string name="service_enabled">موتور اتوماسیون آماده است</string>
-    <string name="service_connecting">دسترسی روشن است؛ فرمان ذخیره شد و منتظر اتصال سرویس است</string>
-    <string name="service_disabled">برای ضبط و اجرا، سرویس دسترس‌پذیری را فعال کنید</string>
+    <string name="service_connecting">فرمان ذخیره شد؛ منتظر اتصال «موتور اتوپی — نسخه Release» است</string>
+    <string name="service_disabled">برای ضبط، «موتور اتوپی — نسخه Release» را فعال کنید</string>
     <string name="service_command_failed">سرویس متصل شد اما شروع فرمان ممکن نبود</string>
     <string name="open_accessibility">تنظیمات دسترس‌پذیری</string>
     <string name="privacy_title">شفاف و محلی</string>
@@ -35,7 +35,7 @@
     <string name="field_required">این فیلد الزامی است</string>
     <string name="app_required">ابتدا برنامهٔ هدف را انتخاب کنید</string>
     <string name="saved">ذخیره شد</string>
-    <string name="service_not_ready">سرویس اتوپی فعال یا متصل نیست</string>
+    <string name="service_not_ready">سرویس همین نسخه متصل نیست؛ در تنظیمات «موتور اتوپی — نسخه Release» را خاموش و دوباره روشن کنید</string>
     <string name="no_steps">برای اجرا، ابتدا چند مرحله ضبط کنید</string>
     <string name="confirm_delete_title">حذف گردش‌کار؟</string>
     <string name="confirm_delete_message">این گردش‌کار و همهٔ مراحل آن برای همیشه حذف می‌شوند.</string>

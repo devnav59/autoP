@@ -59,9 +59,16 @@ class AutomationAccessibilityService : AccessibilityService() {
         }
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        repository = WorkflowRepository(this)
+        // Publish the instance as soon as Android creates the component. onServiceConnected may
+        // arrive a little later, especially directly after replacing an APK.
+        instance = this
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
-        repository = WorkflowRepository(this)
         instance = this
         // The Activity may be restored a little earlier than Android reconnects the accessibility
         // service after an install/update. Execute the user's queued tap as soon as binding ends.
@@ -920,11 +927,17 @@ class AutomationAccessibilityService : AccessibilityService() {
                 }
                 return if (started) CommandRequestResult.STARTED else CommandRequestResult.FAILED
             }
-            if (!isEnabledInSettings(context)) return CommandRequestResult.DISABLED
+            val enabled = isEnabledInSettings(context)
+            // Queue even when OEM Settings has not refreshed its secure-service list yet. If the
+            // user enables/toggles this exact service, onServiceConnected consumes the command.
             synchronized(commandLock) {
                 pendingCommand = PendingCommand(type, workflowId)
             }
-            return CommandRequestResult.QUEUED_UNTIL_CONNECTED
+            return if (enabled) {
+                CommandRequestResult.QUEUED_UNTIL_CONNECTED
+            } else {
+                CommandRequestResult.DISABLED
+            }
         }
 
         fun isEnabledInSettings(context: Context): Boolean {
