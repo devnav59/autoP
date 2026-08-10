@@ -73,28 +73,56 @@ jobs:
         shell: bash
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Restore signing keystore
+      - name: Prepare release signing key
         shell: bash
         env:
           SIGNING_KEY_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          STORE_PASSWORD_SECRET: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS_SECRET: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD_SECRET: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          for value in SIGNING_KEY_BASE64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
-            if [[ -z "${!value}" ]]; then
-              echo "Required signing secret is missing: $value" >&2
-              exit 1
-            fi
+          KEYSTORE="$RUNNER_TEMP/autop-release.jks"
+          supplied=0
+          for value in SIGNING_KEY_BASE64 STORE_PASSWORD_SECRET KEY_ALIAS_SECRET KEY_PASSWORD_SECRET; do
+            [[ -n "${!value}" ]] && supplied=$((supplied + 1))
           done
-          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/autop-release.jks"
-          keytool -list -keystore "$RUNNER_TEMP/autop-release.jks" \
+
+          if [[ "$supplied" -eq 4 ]]; then
+            printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$KEYSTORE"
+            STORE_PASSWORD="$STORE_PASSWORD_SECRET"
+            KEY_ALIAS="$KEY_ALIAS_SECRET"
+            KEY_PASSWORD="$KEY_PASSWORD_SECRET"
+            SIGNING_MODE="repository-secret"
+          elif [[ "$supplied" -eq 0 ]]; then
+            # A release APK must be signed. For test installations, create an ephemeral key when
+            # the repository owner has not configured signing secrets yet.
+            STORE_PASSWORD="autop-temporary-signing"
+            KEY_ALIAS="autop-temporary"
+            KEY_PASSWORD="$STORE_PASSWORD"
+            SIGNING_MODE="temporary"
+            keytool -genkeypair -noprompt \
+              -keystore "$KEYSTORE" \
+              -storepass "$STORE_PASSWORD" \
+              -alias "$KEY_ALIAS" \
+              -keypass "$KEY_PASSWORD" \
+              -keyalg RSA -keysize 4096 -validity 3650 \
+              -dname "CN=autoP Temporary Build, O=autoP, C=GB"
+            echo "::warning::Signing secrets are absent. This build uses a temporary certificate and cannot update another installation."
+          else
+            echo "Signing secrets are only partially configured. Set all four secrets or remove all four." >&2
+            exit 1
+          fi
+
+          keytool -list -keystore "$KEYSTORE" \
             -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
-          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/autop-release.jks" >> "$GITHUB_ENV"
-          echo "ANDROID_KEYSTORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
-          echo "ANDROID_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
-          echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          {
+            echo "ANDROID_KEYSTORE_PATH=$KEYSTORE"
+            echo "ANDROID_KEYSTORE_PASSWORD=$STORE_PASSWORD"
+            echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+            echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
+            echo "SIGNING_MODE=$SIGNING_MODE"
+          } >> "$GITHUB_ENV"
 
       - name: Build signed release
         shell: bash
@@ -107,9 +135,6 @@ jobs:
 
       - name: Verify signatures and prepare files
         shell: bash
-        env:
-          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
           mkdir -p release-files
@@ -123,8 +148,8 @@ jobs:
           jarsigner -verify "$AAB" | grep -q "jar verified"
           keytool -exportcert -rfc \
             -keystore "$ANDROID_KEYSTORE_PATH" \
-            -storepass "$STORE_PASSWORD" \
-            -alias "$KEY_ALIAS" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
             -file release-files/signing-certificate.pem
           cp "$APK" "release-files/autoP-v$VERSION_NAME.apk"
           cp "$AAB" "release-files/autoP-v$VERSION_NAME.aab"
@@ -166,6 +191,11 @@ jobs:
             echo
             echo "- نسخه: \`$VERSION_NAME\`"
             echo "- اعتبار لینک Artifact: ۳۰ روز"
+            if [[ "$SIGNING_MODE" == "temporary" ]]; then
+              echo "- ⚠️ امضا موقت است؛ برای آپدیت‌پذیری نسخه‌های بعد، چهار Signing Secret را تنظیم کنید."
+            else
+              echo "- ✅ امضا با keystore پایدار مخزن انجام شده است."
+            fi
             echo "- [مشاهده جزئیات همین اجرا]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
             if [[ "$CREATE_RELEASE" == "true" ]]; then
               echo "- [صفحه GitHub Release و دانلود مستقیم فایل‌ها]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$VERSION_NAME)"

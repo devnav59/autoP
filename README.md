@@ -92,7 +92,7 @@ keytool -genkeypair -v \
 
 ### ۲. تعریف GitHub Actions secrets
 
-در مخزن GitHub به **Settings → Secrets and variables → Actions** بروید و این چهار Repository secret را بسازید:
+برای یک نصب آزمایشی، workflow در نبود Secret یک گواهی موقت می‌سازد و build را متوقف نمی‌کند؛ اما APK حاصل نمی‌تواند نسخه‌ای را که با اجرای قبلی و کلید دیگری نصب شده به‌روزرسانی کند. برای انتشار واقعی و آپدیت‌پذیری، در مخزن GitHub به **Settings → Secrets and variables → Actions** بروید و هر چهار Repository secret زیر را بسازید:
 
 | Secret | مقدار |
 | --- | --- |
