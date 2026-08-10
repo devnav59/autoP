@@ -111,12 +111,14 @@ base64 < autop-release.jks | tr -d '\n'
 
 ### ۳. اجرای دستی
 
-از تب **Actions**، workflow «Build signed Android release» را انتخاب کنید و **Run workflow** را بزنید. `version_name` و `version_code` را وارد کنید. خروجی artifact شامل موارد زیر است:
+از تب **Actions**، workflow «Build signed Android release» را انتخاب کنید و **Run workflow** را بزنید. `version_name` و `version_code` را وارد کنید. بعد از موفق‌شدن build، در بالای همان صفحهٔ اجرای Action و داخل **Job summary** دکمهٔ «دانلود APK و AAB امضاشده» نمایش داده می‌شود. Artifact به‌مدت ۳۰ روز قابل دانلود است و شامل موارد زیر است:
 
 - APK امضاشده برای نصب مستقیم؛
 - AAB امضاشده برای انتشار؛
 - `signing-certificate.pem`، یعنی گواهی/کلید عمومی قابل انتشار؛
 - fingerprintهای امضا و `SHA256SUMS.txt`.
+
+اگر گزینهٔ `create_github_release` را فعال کنید، لینک صفحهٔ Release نیز در همان summary نشان داده می‌شود و فایل‌ها از صفحهٔ Releases به‌صورت مستقیم قابل دانلود خواهند بود.
 
 امضای APK با **کلید خصوصی** انجام می‌شود و گواهی عمومی داخل APK قرار می‌گیرد. چیزی به نام امضای امن با «کلید عمومی» وجود ندارد؛ workflow کلید خصوصی را فقط از GitHub Secrets می‌گیرد و فقط گواهی عمومی را در artifact منتشر می‌کند.
 

@@ -121,12 +121,14 @@ jobs:
           (cd release-files && sha256sum *.apk *.aab *.pem > SHA256SUMS.txt)
 
       - name: Upload release artifacts
+        id: upload_release
         uses: actions/upload-artifact@v4
         with:
           name: autoP-v${{ inputs.version_name }}-signed
           path: release-files/*
           if-no-files-found: error
           retention-days: 30
+          compression-level: 0
 
       - name: Create GitHub Release
         if: ${{ inputs.create_github_release }}
@@ -137,3 +139,26 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: release-files/*
+
+      - name: Show download link in run summary
+        if: ${{ always() && steps.upload_release.outcome == 'success' }}
+        shell: bash
+        env:
+          ARTIFACT_URL: ${{ steps.upload_release.outputs.artifact-url }}
+          CREATE_RELEASE: ${{ inputs.create_github_release }}
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          {
+            echo "## 📦 دانلود خروجی autoP"
+            echo
+            echo "### [⬇️ دانلود APK و AAB امضاشده]($ARTIFACT_URL)"
+            echo
+            echo "فایل دانلودی شامل APK، AAB، گواهی عمومی امضا و SHA256 است."
+            echo
+            echo "- نسخه: \`$VERSION_NAME\`"
+            echo "- اعتبار لینک Artifact: ۳۰ روز"
+            echo "- [مشاهده جزئیات همین اجرا]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+            if [[ "$CREATE_RELEASE" == "true" ]]; then
+              echo "- [صفحه GitHub Release و دانلود مستقیم فایل‌ها]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$VERSION_NAME)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
