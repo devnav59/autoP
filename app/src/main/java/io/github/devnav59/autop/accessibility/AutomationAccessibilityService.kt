@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -36,12 +37,22 @@ class AutomationAccessibilityService : AccessibilityService() {
     private var overlayAdded = false
     private var overlayX = 12
     private var overlayY = 96
+    private var lastErrorToastAt = 0L
     private val windowManager by lazy { getSystemService(WINDOW_SERVICE) as WindowManager }
 
-    private val commitTextRunnable = Runnable { flushPendingText() }
-    private val commitScrollRunnable = Runnable { flushPendingScroll() }
-    private val commitProgressRunnable = Runnable { flushPendingProgress() }
-    private val replayRunnable = Runnable { runCurrentStep() }
+    private val commitTextRunnable = safeRunnable("ذخیره متن") { flushPendingText() }
+    private val commitScrollRunnable = safeRunnable("ذخیره اسکرول") { flushPendingScroll() }
+    private val commitProgressRunnable = safeRunnable("ذخیره مقدار") { flushPendingProgress() }
+    private val replayRunnable = Runnable {
+        try {
+            runCurrentStep()
+        } catch (error: Exception) {
+            reportServiceError("اجرای مرحله", error)
+            (state as? SessionState.Replaying)?.let { session ->
+                finishReplay(session, success = false, message = "اجرای مرحله به خطای داخلی برخورد کرد")
+            }
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -51,12 +62,18 @@ class AutomationAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
-        when (val current = state) {
-            is SessionState.Recording -> recordEvent(current, event)
-            is SessionState.Replaying -> {
-                if (event.packageName?.toString() == current.workflow.targetPackage) scheduleReplay(120)
+        try {
+            when (val current = state) {
+                is SessionState.Recording -> recordEvent(current, event)
+                is SessionState.Replaying -> {
+                    if (event.packageName?.toString() == current.workflow.targetPackage) scheduleReplay(120)
+                }
+                else -> Unit
             }
-            else -> Unit
+        } catch (error: Exception) {
+            // Accessibility nodes can become stale while a target app is redrawing. A malformed
+            // node must skip one event, not terminate the service or crash the whole app.
+            reportServiceError("پردازش رویداد دسترس‌پذیری", error)
         }
     }
 
@@ -87,39 +104,51 @@ class AutomationAccessibilityService : AccessibilityService() {
     }
 
     fun startRecording(workflowId: String): Boolean {
-        val workflow = repository.get(workflowId) ?: return false
-        val launchIntent = packageManager.getLaunchIntentForPackage(workflow.targetPackage) ?: run {
-            Toast.makeText(this, R.string.target_cannot_launch, Toast.LENGTH_LONG).show()
-            return false
+        return try {
+            val workflow = repository.get(workflowId) ?: return false
+            val launchIntent = packageManager.getLaunchIntentForPackage(workflow.targetPackage) ?: run {
+                Toast.makeText(this, R.string.target_cannot_launch, Toast.LENGTH_LONG).show()
+                return false
+            }
+            stopSession(openEditor = false)
+            state = SessionState.Recording(
+                workflowId = workflow.id,
+                targetPackage = workflow.targetPackage,
+                recordedCount = workflow.steps.size,
+            )
+            showOverlay()
+            updateOverlay()
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            startActivity(launchIntent)
+            true
+        } catch (error: Exception) {
+            reportServiceError("شروع ضبط", error)
+            stopSession(openEditor = false)
+            false
         }
-        stopSession(openEditor = false)
-        state = SessionState.Recording(
-            workflowId = workflow.id,
-            targetPackage = workflow.targetPackage,
-            recordedCount = workflow.steps.size,
-        )
-        showOverlay()
-        updateOverlay()
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-        startActivity(launchIntent)
-        return true
     }
 
     fun startReplay(workflowId: String): Boolean {
-        val workflow = repository.get(workflowId) ?: return false
-        if (workflow.steps.isEmpty()) return false
-        val launchIntent = packageManager.getLaunchIntentForPackage(workflow.targetPackage) ?: run {
-            Toast.makeText(this, R.string.target_cannot_launch, Toast.LENGTH_LONG).show()
-            return false
+        return try {
+            val workflow = repository.get(workflowId) ?: return false
+            if (workflow.steps.isEmpty()) return false
+            val launchIntent = packageManager.getLaunchIntentForPackage(workflow.targetPackage) ?: run {
+                Toast.makeText(this, R.string.target_cannot_launch, Toast.LENGTH_LONG).show()
+                return false
+            }
+            stopSession(openEditor = false)
+            state = SessionState.Replaying(workflow = workflow)
+            showOverlay()
+            updateOverlay()
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            startActivity(launchIntent)
+            scheduleReplay(1_000)
+            true
+        } catch (error: Exception) {
+            reportServiceError("شروع اجرا", error)
+            stopSession(openEditor = false)
+            false
         }
-        stopSession(openEditor = false)
-        state = SessionState.Replaying(workflow = workflow)
-        showOverlay()
-        updateOverlay()
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-        startActivity(launchIntent)
-        scheduleReplay(1_000)
-        return true
     }
 
     private fun recordEvent(session: SessionState.Recording, event: AccessibilityEvent) {
@@ -569,6 +598,34 @@ class AutomationAccessibilityService : AccessibilityService() {
     private fun supportsAction(node: AccessibilityNodeInfo, actionId: Int): Boolean =
         node.actionList.any { it.id == actionId }
 
+    private fun safeRunnable(stage: String, block: () -> Unit): Runnable = Runnable {
+        try {
+            block()
+        } catch (error: Exception) {
+            reportServiceError(stage, error)
+        }
+    }
+
+    private fun reportServiceError(stage: String, error: Exception) {
+        Log.e(TAG, "$stage failed", error)
+        runCatching {
+            val report = buildString {
+                appendLine("زمان: ${System.currentTimeMillis()}")
+                appendLine("بخش: $stage")
+                appendLine("اندروید: ${Build.VERSION.SDK_INT}")
+                appendLine(error.stackTraceToString())
+            }
+            filesDir.resolve("last-service-error.txt").writeText(report)
+        }
+        (state as? SessionState.Recording)?.lastWarning = "یک رویداد ناسازگار رد شد؛ ضبط ادامه دارد"
+        updateOverlay()
+        val now = System.currentTimeMillis()
+        if (now - lastErrorToastAt > ERROR_TOAST_INTERVAL_MS) {
+            lastErrorToastAt = now
+            Toast.makeText(this, "یک رویداد قابل خواندن نبود؛ ضبط متوقف نشد", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun scheduleReplay(delayMs: Long) {
         handler.removeCallbacks(replayRunnable)
         handler.postDelayed(replayRunnable, delayMs)
@@ -695,7 +752,8 @@ class AutomationAccessibilityService : AccessibilityService() {
             is SessionState.Recording -> {
                 binding.modeIndicator.setBackgroundResource(R.drawable.bg_status_off)
                 binding.modeTitle.setText(R.string.overlay_recording)
-                binding.modeDetail.text = getString(R.string.recorded_count, current.recordedCount)
+                val count = getString(R.string.recorded_count, current.recordedCount)
+                binding.modeDetail.text = current.lastWarning?.let { "$count\n$it" } ?: count
                 binding.recordingTools.visibility = View.VISIBLE
                 binding.undoButton.isEnabled = current.recordedCount > 0
                 binding.stopButton.setText(R.string.stop_recording)
@@ -759,6 +817,7 @@ class AutomationAccessibilityService : AccessibilityService() {
             var lastActionAt: Long = 0,
             var lastClickAt: Long = 0,
             var ignoreBackUntil: Long = 0,
+            var lastWarning: String? = null,
             val scrollPositions: MutableMap<String, ScrollPosition> = mutableMapOf(),
         ) : SessionState
 
@@ -792,6 +851,8 @@ class AutomationAccessibilityService : AccessibilityService() {
         private const val ACTION_SETTLE_MS = 650L
         private const val RETRY_MS = 350L
         private const val STEP_TIMEOUT_MS = 15_000L
+        private const val ERROR_TOAST_INTERVAL_MS = 5_000L
+        private const val TAG = "AutoPAccessibility"
 
         @Volatile
         var instance: AutomationAccessibilityService? = null

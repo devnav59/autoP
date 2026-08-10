@@ -73,7 +73,7 @@
 
 ## Workflow ساخت ریلیز امضاشده
 
-پروژه فقط یک فایل workflow قابل‌انتقال دارد. ابتدا workflowهای قدیمی Debug مانند `.github/workflows/ci.yml` و `.github/workflows/auto.yml` را از GitHub حذف کنید؛ سپس فایل زیر را دستی با نام `.github/workflows/android-release.yml` منتقل کنید. این workflow فقط Release امضاشده می‌سازد و با `workflow_dispatch` اجرا می‌شود:
+پروژه فقط یک فایل workflow قابل‌انتقال دارد. ابتدا workflowهای قدیمی Debug را حذف کنید؛ سپس فایل زیر را دستی با نام `.github/workflows/android-release.yml` منتقل کنید. فایل هم trigger از نوع `push` دارد تا روی همین شاخه فوراً شناسایی و یک Release امضاشده تولید شود، و هم `workflow_dispatch` برای اجرای دستی دارد. توجه کنید که GitHub دکمهٔ Run workflow را فقط وقتی نشان می‌دهد که فایل workflow روی شاخهٔ پیش‌فرض مخزن نیز وجود داشته باشد:
 
 ```text
 workflow-files/android-release.yml
