@@ -1,6 +1,12 @@
 name: Build signed Android release
 
 on:
+  # The push trigger makes this workflow visible and runnable even before the branch is merged
+  # into the default branch. workflow_dispatch itself is only exposed by GitHub from default.
+  push:
+    branches:
+      - main
+      - "arena/**"
   workflow_dispatch:
     inputs:
       version_name:
@@ -22,8 +28,12 @@ on:
 permissions:
   contents: write
 
+env:
+  VERSION_NAME: ${{ inputs.version_name || format('1.0.{0}', github.run_number) }}
+  VERSION_CODE: ${{ inputs.version_code || github.run_number }}
+
 concurrency:
-  group: android-release-${{ inputs.version_name }}
+  group: android-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -40,11 +50,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "${{ inputs.version_name }}" =~ ^[0-9]+([.][0-9A-Za-z_-]+)*$ ]] || {
-            echo "Invalid version_name" >&2
+          [[ "$VERSION_NAME" =~ ^[0-9]+([.][0-9A-Za-z_-]+)*$ ]] || {
+            echo "Invalid version_name: $VERSION_NAME" >&2
             exit 1
           }
-          [[ "${{ inputs.version_code }}" =~ ^[1-9][0-9]*$ ]] || {
+          [[ "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || {
             echo "version_code must be a positive integer" >&2
             exit 1
           }
@@ -91,8 +101,8 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon --stacktrace \
-            -PVERSION_NAME="${{ inputs.version_name }}" \
-            -PVERSION_CODE="${{ inputs.version_code }}" \
+            -PVERSION_NAME="$VERSION_NAME" \
+            -PVERSION_CODE="$VERSION_CODE" \
             :app:clean :app:assembleRelease :app:bundleRelease
 
       - name: Verify signatures and prepare files
@@ -116,26 +126,26 @@ jobs:
             -storepass "$STORE_PASSWORD" \
             -alias "$KEY_ALIAS" \
             -file release-files/signing-certificate.pem
-          cp "$APK" "release-files/autoP-v${{ inputs.version_name }}.apk"
-          cp "$AAB" "release-files/autoP-v${{ inputs.version_name }}.aab"
+          cp "$APK" "release-files/autoP-v$VERSION_NAME.apk"
+          cp "$AAB" "release-files/autoP-v$VERSION_NAME.aab"
           (cd release-files && sha256sum *.apk *.aab *.pem > SHA256SUMS.txt)
 
       - name: Upload release artifacts
         id: upload_release
         uses: actions/upload-artifact@v6
         with:
-          name: autoP-v${{ inputs.version_name }}-signed
+          name: autoP-v${{ env.VERSION_NAME }}-signed
           path: release-files/*
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
 
       - name: Create GitHub Release
-        if: ${{ inputs.create_github_release }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_github_release }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ inputs.version_name }}
-          name: autoP v${{ inputs.version_name }}
+          tag_name: v${{ env.VERSION_NAME }}
+          name: autoP v${{ env.VERSION_NAME }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: release-files/*
@@ -146,7 +156,6 @@ jobs:
         env:
           ARTIFACT_URL: ${{ steps.upload_release.outputs.artifact-url }}
           CREATE_RELEASE: ${{ inputs.create_github_release }}
-          VERSION_NAME: ${{ inputs.version_name }}
         run: |
           {
             echo "## 📦 دانلود خروجی autoP"
