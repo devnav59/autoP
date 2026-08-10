@@ -1,6 +1,7 @@
 package io.github.devnav59.autop.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
@@ -9,6 +10,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
@@ -23,8 +25,6 @@ import io.github.devnav59.autop.data.Workflow
 import io.github.devnav59.autop.data.WorkflowRepository
 import io.github.devnav59.autop.databinding.OverlayControllerBinding
 import io.github.devnav59.autop.ui.WorkflowActivity
-import android.content.Intent
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 class AutomationAccessibilityService : AccessibilityService() {
@@ -32,10 +32,15 @@ class AutomationAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var state: SessionState = SessionState.Idle
     private var overlayBinding: OverlayControllerBinding? = null
+    private var overlayParams: WindowManager.LayoutParams? = null
     private var overlayAdded = false
+    private var overlayX = 12
+    private var overlayY = 96
     private val windowManager by lazy { getSystemService(WINDOW_SERVICE) as WindowManager }
 
     private val commitTextRunnable = Runnable { flushPendingText() }
+    private val commitScrollRunnable = Runnable { flushPendingScroll() }
+    private val commitProgressRunnable = Runnable { flushPendingProgress() }
     private val replayRunnable = Runnable { runCurrentStep() }
 
     override fun onServiceConnected() {
@@ -49,9 +54,7 @@ class AutomationAccessibilityService : AccessibilityService() {
         when (val current = state) {
             is SessionState.Recording -> recordEvent(current, event)
             is SessionState.Replaying -> {
-                if (event.packageName?.toString() == current.workflow.targetPackage) {
-                    scheduleReplay(120)
-                }
+                if (event.packageName?.toString() == current.workflow.targetPackage) scheduleReplay(120)
             }
             else -> Unit
         }
@@ -62,10 +65,11 @@ class AutomationAccessibilityService : AccessibilityService() {
         if (current is SessionState.Recording &&
             event.action == KeyEvent.ACTION_UP &&
             event.keyCode == KeyEvent.KEYCODE_BACK &&
+            System.currentTimeMillis() >= current.ignoreBackUntil &&
             activePackageName() == current.targetPackage &&
             !isInputMethodVisible()
         ) {
-            flushPendingText()
+            flushAllPending()
             appendRecordedStep(current, AutomationStep(type = ActionType.BACK))
         }
         // Observing must never consume the user's key.
@@ -123,22 +127,61 @@ class AutomationAccessibilityService : AccessibilityService() {
         val source = event.source ?: return
         try {
             when (event.eventType) {
-                AccessibilityEvent.TYPE_VIEW_CLICKED -> {
-                    flushPendingText()
-                    val selector = SelectorFactory.fromNode(source, session.targetPackage)
-                    appendIfNotDuplicate(session, ActionType.CLICK, selector, duplicateWindowMs = 280)
+                AccessibilityEvent.TYPE_VIEW_CLICKED,
+                AccessibilityEvent.TYPE_VIEW_CONTEXT_CLICKED -> {
+                    flushAllPending()
+                    session.lastClickAt = System.currentTimeMillis()
+                    recordNodeAction(session, source, ActionType.CLICK, AccessibilityNodeInfo.ACTION_CLICK, 280)
                 }
                 AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
-                    flushPendingText()
-                    val selector = SelectorFactory.fromNode(source, session.targetPackage)
-                    appendIfNotDuplicate(session, ActionType.LONG_CLICK, selector, duplicateWindowMs = 350)
+                    flushAllPending()
+                    recordNodeAction(
+                        session,
+                        source,
+                        ActionType.LONG_CLICK,
+                        AccessibilityNodeInfo.ACTION_LONG_CLICK,
+                        350,
+                    )
+                }
+                AccessibilityEvent.TYPE_VIEW_SELECTED -> {
+                    if (!recordRangeChange(session, source) &&
+                        System.currentTimeMillis() - session.lastClickAt > SELECT_AFTER_CLICK_WINDOW_MS
+                    ) {
+                        flushAllPending()
+                        recordNodeAction(
+                            session,
+                            source,
+                            ActionType.SELECT,
+                            AccessibilityNodeInfo.ACTION_SELECT,
+                            450,
+                        )
+                    }
                 }
                 AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> recordText(session, event, source)
-                AccessibilityEvent.TYPE_VIEW_SCROLLED -> recordScroll(session, event, source)
+                AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                    if (!recordRangeChange(session, source)) recordScroll(session, event, source)
+                }
             }
         } finally {
             @Suppress("DEPRECATION")
             source.recycle()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun recordNodeAction(
+        session: SessionState.Recording,
+        source: AccessibilityNodeInfo,
+        type: ActionType,
+        accessibilityAction: Int,
+        duplicateWindowMs: Long,
+    ) {
+        val actionable = SelectorFactory.nearestActionable(source, accessibilityAction)
+        try {
+            val selector = SelectorFactory.fromNode(actionable, session.targetPackage)
+            appendIfNotDuplicate(session, type, selector, duplicateWindowMs)
+        } finally {
+            actionable.recycle()
         }
     }
 
@@ -147,6 +190,8 @@ class AutomationAccessibilityService : AccessibilityService() {
         event: AccessibilityEvent,
         source: AccessibilityNodeInfo,
     ) {
+        flushPendingScroll()
+        flushPendingProgress()
         if (event.isPassword || source.isPassword) {
             handler.removeCallbacks(commitTextRunnable)
             session.pendingText = null
@@ -156,26 +201,58 @@ class AutomationAccessibilityService : AccessibilityService() {
         val selector = SelectorFactory.fromNode(source, session.targetPackage)
         val value = source.text?.toString() ?: event.text.joinToString(separator = "")
         val oldPending = session.pendingText
-        if (oldPending != null && oldPending.selector.stableKey() != selector.stableKey()) {
-            flushPendingText()
-        }
+        if (oldPending != null && oldPending.selector.stableKey() != selector.stableKey()) flushPendingText()
         session.pendingText = PendingText(selector, value)
         handler.removeCallbacks(commitTextRunnable)
         handler.postDelayed(commitTextRunnable, TEXT_DEBOUNCE_MS)
     }
 
+    @Suppress("DEPRECATION")
+    private fun recordRangeChange(
+        session: SessionState.Recording,
+        source: AccessibilityNodeInfo,
+    ): Boolean {
+        val rangeNode = SelectorFactory.nearestRange(source) ?: return false
+        try {
+            val currentValue = rangeNode.rangeInfo?.current ?: return false
+            if (!currentValue.isFinite()) return false
+            flushPendingText()
+            flushPendingScroll()
+            val selector = SelectorFactory.fromNode(rangeNode, session.targetPackage)
+            val previous = session.pendingProgress
+            if (previous != null && previous.selector.stableKey() != selector.stableKey()) flushPendingProgress()
+            session.pendingProgress = PendingProgress(selector, currentValue)
+            handler.removeCallbacks(commitProgressRunnable)
+            handler.postDelayed(commitProgressRunnable, VALUE_DEBOUNCE_MS)
+            return true
+        } finally {
+            rangeNode.recycle()
+        }
+    }
+
+    @Suppress("DEPRECATION")
     private fun recordScroll(
         session: SessionState.Recording,
         event: AccessibilityEvent,
         source: AccessibilityNodeInfo,
     ) {
+        flushPendingText()
+        flushPendingProgress()
         val scrollNode = SelectorFactory.nearestScrollable(source)
         try {
             val selector = SelectorFactory.fromNode(scrollNode, session.targetPackage)
             val direction = scrollDirection(session, event, selector) ?: return
-            appendIfNotDuplicate(session, direction, selector, duplicateWindowMs = 500)
+            val targetPosition = event.fromIndex.takeIf { it >= 0 }
+            val oldPending = session.pendingScroll
+            if (oldPending != null &&
+                (oldPending.type != direction || oldPending.selector.stableKey() != selector.stableKey())
+            ) {
+                flushPendingScroll()
+            }
+            session.pendingScroll = PendingScroll(direction, selector, targetPosition)
+            handler.removeCallbacks(commitScrollRunnable)
+            handler.postDelayed(commitScrollRunnable, VALUE_DEBOUNCE_MS)
         } finally {
-            @Suppress("DEPRECATION")
             scrollNode.recycle()
         }
     }
@@ -206,8 +283,6 @@ class AutomationAccessibilityService : AccessibilityService() {
                 return if (x > previous.x) ActionType.SCROLL_RIGHT else ActionType.SCROLL_LEFT
             }
         }
-        // On old Android releases the first event has no delta. A positive index reliably means
-        // movement toward the end, otherwise waiting for the next event is safer than guessing.
         return if ((y ?: 0) > 0 || event.fromIndex > 0) ActionType.SCROLL_DOWN else null
     }
 
@@ -231,6 +306,12 @@ class AutomationAccessibilityService : AccessibilityService() {
         updateOverlay()
     }
 
+    private fun flushAllPending() {
+        flushPendingText()
+        flushPendingProgress()
+        flushPendingScroll()
+    }
+
     private fun flushPendingText() {
         handler.removeCallbacks(commitTextRunnable)
         val session = state as? SessionState.Recording ?: return
@@ -238,10 +319,36 @@ class AutomationAccessibilityService : AccessibilityService() {
         session.pendingText = null
         appendRecordedStep(
             session,
+            AutomationStep(type = ActionType.SET_TEXT, selector = pending.selector, value = pending.value),
+        )
+    }
+
+    private fun flushPendingProgress() {
+        handler.removeCallbacks(commitProgressRunnable)
+        val session = state as? SessionState.Recording ?: return
+        val pending = session.pendingProgress ?: return
+        session.pendingProgress = null
+        appendRecordedStep(
+            session,
             AutomationStep(
-                type = ActionType.SET_TEXT,
+                type = ActionType.SET_PROGRESS,
                 selector = pending.selector,
-                value = pending.value,
+                value = pending.value.toString(),
+            ),
+        )
+    }
+
+    private fun flushPendingScroll() {
+        handler.removeCallbacks(commitScrollRunnable)
+        val session = state as? SessionState.Recording ?: return
+        val pending = session.pendingScroll ?: return
+        session.pendingScroll = null
+        appendRecordedStep(
+            session,
+            AutomationStep(
+                type = pending.type,
+                selector = pending.selector,
+                targetPosition = pending.targetPosition,
             ),
         )
     }
@@ -249,17 +356,14 @@ class AutomationAccessibilityService : AccessibilityService() {
     private fun runCurrentStep() {
         val session = state as? SessionState.Replaying ?: return
         if (session.index >= session.workflow.steps.size) {
-            finishReplay(
-                session = session,
-                success = true,
-                message = getString(R.string.workflow_complete),
-            )
+            finishReplay(session, success = true, message = getString(R.string.workflow_complete))
             return
         }
 
         val step = session.workflow.steps[session.index]
         val result = if (step.type == ActionType.BACK) {
-            if (performGlobalAction(GLOBAL_ACTION_BACK)) StepResult.Success else StepResult.Retry("بازگشت انجام نشد")
+            if (performGlobalAction(GLOBAL_ACTION_BACK)) StepResult.Success
+            else StepResult.Retry("بازگشت انجام نشد")
         } else {
             findAndPerform(session, step)
         }
@@ -276,8 +380,11 @@ class AutomationAccessibilityService : AccessibilityService() {
                 session.lastIssue = result.reason
                 updateOverlay()
                 if (System.currentTimeMillis() - session.stepStartedAt >= STEP_TIMEOUT_MS) {
-                    val message = "مرحلهٔ ${session.index + 1}: ${result.reason}"
-                    finishReplay(session = session, success = false, message = message)
+                    finishReplay(
+                        session = session,
+                        success = false,
+                        message = "مرحلهٔ ${session.index + 1}: ${result.reason}",
+                    )
                 } else {
                     scheduleReplay(RETRY_MS)
                 }
@@ -303,7 +410,8 @@ class AutomationAccessibilityService : AccessibilityService() {
         }
         return when (match) {
             is NodeMatcher.Result.NotFound -> StepResult.Retry("المان پیدا نشد")
-            is NodeMatcher.Result.Ambiguous -> StepResult.Retry("چند المان مشابه پیدا شد؛ اجرا برای ایمنی متوقف می‌شود")
+            is NodeMatcher.Result.Ambiguous ->
+                StepResult.Retry("چند المان مشابه پیدا شد؛ اجرا برای ایمنی متوقف می‌شود")
             is NodeMatcher.Result.Found -> {
                 val performed = try {
                     performOnNode(match.node, step)
@@ -311,7 +419,8 @@ class AutomationAccessibilityService : AccessibilityService() {
                     @Suppress("DEPRECATION")
                     match.node.recycle()
                 }
-                if (performed) StepResult.Success else StepResult.Retry("المان پیدا شد اما عمل را نپذیرفت")
+                if (performed) StepResult.Success
+                else StepResult.Retry("المان پیدا شد اما عمل را نپذیرفت")
             }
         }
     }
@@ -321,27 +430,22 @@ class AutomationAccessibilityService : AccessibilityService() {
         val roots = runCatching {
             val matching = mutableListOf<AccessibilityNodeInfo>()
             windows.mapNotNull { it.root }.forEach { root ->
-                if (root.packageName?.toString() == targetPackage) {
-                    matching += root
-                } else {
-                    root.recycle()
-                }
+                if (root.packageName?.toString() == targetPackage) matching += root else root.recycle()
             }
             matching
         }.getOrDefault(emptyList())
         if (roots.isNotEmpty()) return roots
         val active = rootInActiveWindow ?: return emptyList()
-        return if (active.packageName?.toString() == targetPackage) {
-            listOf(active)
-        } else {
+        return if (active.packageName?.toString() == targetPackage) listOf(active) else {
             active.recycle()
             emptyList()
         }
     }
 
     private fun performOnNode(node: AccessibilityNodeInfo, step: AutomationStep): Boolean = when (step.type) {
-        ActionType.CLICK -> performClickable(node, AccessibilityNodeInfo.ACTION_CLICK, requireLongClickable = false)
-        ActionType.LONG_CLICK -> performClickable(node, AccessibilityNodeInfo.ACTION_LONG_CLICK, requireLongClickable = true)
+        ActionType.CLICK -> performClickable(node, AccessibilityNodeInfo.ACTION_CLICK, false)
+        ActionType.LONG_CLICK -> performClickable(node, AccessibilityNodeInfo.ACTION_LONG_CLICK, true)
+        ActionType.SELECT -> performSelect(node)
         ActionType.SET_TEXT -> {
             val arguments = Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, step.value.orEmpty())
@@ -350,35 +454,53 @@ class AutomationAccessibilityService : AccessibilityService() {
                 (node.performAction(AccessibilityNodeInfo.ACTION_FOCUS) &&
                     node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments))
         }
+        ActionType.SET_PROGRESS -> step.value?.toFloatOrNull()?.let { value ->
+            val arguments = Bundle().apply {
+                putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, value)
+            }
+            node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id, arguments)
+        } ?: false
         ActionType.SCROLL_UP -> performScroll(
             node,
             AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id,
             AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD,
+            step.targetPosition,
+            vertical = true,
         )
         ActionType.SCROLL_DOWN -> performScroll(
             node,
             AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id,
             AccessibilityNodeInfo.ACTION_SCROLL_FORWARD,
+            step.targetPosition,
+            vertical = true,
         )
         ActionType.SCROLL_LEFT -> performScroll(
             node,
             AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.id,
             AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD,
+            step.targetPosition,
+            vertical = false,
         )
         ActionType.SCROLL_RIGHT -> performScroll(
             node,
             AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.id,
             AccessibilityNodeInfo.ACTION_SCROLL_FORWARD,
+            step.targetPosition,
+            vertical = false,
         )
         ActionType.BACK -> false
     }
 
     @Suppress("DEPRECATION")
-    private fun performClickable(node: AccessibilityNodeInfo, action: Int, requireLongClickable: Boolean): Boolean {
+    private fun performClickable(
+        node: AccessibilityNodeInfo,
+        action: Int,
+        requireLongClickable: Boolean,
+    ): Boolean {
         var current = AccessibilityNodeInfo.obtain(node)
-        repeat(6) {
+        repeat(7) {
             val acceptsAction = if (requireLongClickable) current.isLongClickable else current.isClickable
-            if (acceptsAction && current.performAction(action)) {
+            if ((acceptsAction || supportsAction(current, action)) && current.performAction(action)) {
                 current.recycle()
                 return true
             }
@@ -391,14 +513,61 @@ class AutomationAccessibilityService : AccessibilityService() {
     }
 
     @Suppress("DEPRECATION")
-    private fun performScroll(node: AccessibilityNodeInfo, directionalAction: Int, fallbackAction: Int): Boolean {
+    private fun performSelect(node: AccessibilityNodeInfo): Boolean {
+        var current = AccessibilityNodeInfo.obtain(node)
+        repeat(7) {
+            if (supportsAction(current, AccessibilityNodeInfo.ACTION_SELECT) &&
+                current.performAction(AccessibilityNodeInfo.ACTION_SELECT)
+            ) {
+                current.recycle()
+                return true
+            }
+            if ((current.isClickable || supportsAction(current, AccessibilityNodeInfo.ACTION_CLICK)) &&
+                current.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            ) {
+                current.recycle()
+                return true
+            }
+            val parent = current.parent
+            current.recycle()
+            current = parent ?: return false
+        }
+        current.recycle()
+        return false
+    }
+
+    @Suppress("DEPRECATION")
+    private fun performScroll(
+        node: AccessibilityNodeInfo,
+        directionalAction: Int,
+        fallbackAction: Int,
+        targetPosition: Int?,
+        vertical: Boolean,
+    ): Boolean {
         val scrollable = SelectorFactory.nearestScrollable(node)
         return try {
-            scrollable.performAction(directionalAction) || scrollable.performAction(fallbackAction)
+            val exactPositionPerformed = targetPosition?.let { position ->
+                val arguments = Bundle().apply {
+                    putInt(
+                        if (vertical) AccessibilityNodeInfo.ACTION_ARGUMENT_ROW_INT
+                        else AccessibilityNodeInfo.ACTION_ARGUMENT_COLUMN_INT,
+                        position,
+                    )
+                }
+                scrollable.performAction(
+                    AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_TO_POSITION.id,
+                    arguments,
+                )
+            } ?: false
+            exactPositionPerformed || scrollable.performAction(directionalAction) ||
+                scrollable.performAction(fallbackAction)
         } finally {
             scrollable.recycle()
         }
     }
+
+    private fun supportsAction(node: AccessibilityNodeInfo, actionId: Int): Boolean =
+        node.actionList.any { it.id == actionId }
 
     private fun scheduleReplay(delayMs: Long) {
         handler.removeCallbacks(replayRunnable)
@@ -415,7 +584,7 @@ class AutomationAccessibilityService : AccessibilityService() {
     private fun stopSession(openEditor: Boolean) {
         val workflowId = when (val current = state) {
             is SessionState.Recording -> {
-                flushPendingText()
+                flushAllPending()
                 current.workflowId
             }
             is SessionState.Replaying -> current.workflow.id
@@ -423,6 +592,8 @@ class AutomationAccessibilityService : AccessibilityService() {
             SessionState.Idle -> null
         }
         handler.removeCallbacks(commitTextRunnable)
+        handler.removeCallbacks(commitProgressRunnable)
+        handler.removeCallbacks(commitScrollRunnable)
         handler.removeCallbacks(replayRunnable)
         state = SessionState.Idle
         hideOverlay()
@@ -442,12 +613,21 @@ class AutomationAccessibilityService : AccessibilityService() {
         val binding = OverlayControllerBinding.inflate(LayoutInflater.from(this))
         binding.undoButton.setOnClickListener {
             val recording = state as? SessionState.Recording ?: return@setOnClickListener
-            flushPendingText()
+            flushAllPending()
             repository.removeLastStep(recording.workflowId)
             recording.recordedCount = repository.get(recording.workflowId)?.steps?.size ?: 0
             updateOverlay()
         }
+        binding.backButton.setOnClickListener {
+            val recording = state as? SessionState.Recording ?: return@setOnClickListener
+            flushAllPending()
+            recording.ignoreBackUntil = System.currentTimeMillis() + 1_000
+            appendRecordedStep(recording, AutomationStep(type = ActionType.BACK))
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        }
         binding.stopButton.setOnClickListener { stopSession(openEditor = true) }
+
+        @Suppress("DEPRECATION")
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -455,14 +635,49 @@ class AutomationAccessibilityService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = 16
-            y = 88
+            gravity = Gravity.TOP or Gravity.LEFT
+            x = overlayX
+            y = overlayY
         }
+        installOverlayDrag(binding, params)
         runCatching {
             windowManager.addView(binding.root, params)
             overlayBinding = binding
+            overlayParams = params
             overlayAdded = true
+        }
+    }
+
+    private fun installOverlayDrag(
+        binding: OverlayControllerBinding,
+        params: WindowManager.LayoutParams,
+    ) {
+        var startX = 0
+        var startY = 0
+        var downRawX = 0f
+        var downRawY = 0f
+        binding.dragHandle.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = params.x
+                    startY = params.y
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val maxX = (resources.displayMetrics.widthPixels - binding.root.width).coerceAtLeast(0)
+                    val maxY = (resources.displayMetrics.heightPixels - binding.root.height).coerceAtLeast(0)
+                    params.x = (startX + (event.rawX - downRawX).toInt()).coerceIn(0, maxX)
+                    params.y = (startY + (event.rawY - downRawY).toInt()).coerceIn(0, maxY)
+                    overlayX = params.x
+                    overlayY = params.y
+                    if (overlayAdded) runCatching { windowManager.updateViewLayout(binding.root, params) }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> true
+                else -> false
+            }
         }
     }
 
@@ -471,6 +686,7 @@ class AutomationAccessibilityService : AccessibilityService() {
         if (overlayAdded) runCatching { windowManager.removeView(binding.root) }
         overlayAdded = false
         overlayBinding = null
+        overlayParams = null
     }
 
     private fun updateOverlay() {
@@ -480,9 +696,9 @@ class AutomationAccessibilityService : AccessibilityService() {
                 binding.modeIndicator.setBackgroundResource(R.drawable.bg_status_off)
                 binding.modeTitle.setText(R.string.overlay_recording)
                 binding.modeDetail.text = getString(R.string.recorded_count, current.recordedCount)
-                binding.undoButton.visibility = View.VISIBLE
+                binding.recordingTools.visibility = View.VISIBLE
                 binding.undoButton.isEnabled = current.recordedCount > 0
-                binding.stopButton.setText(R.string.stop)
+                binding.stopButton.setText(R.string.stop_recording)
             }
             is SessionState.Replaying -> {
                 binding.modeIndicator.setBackgroundResource(R.drawable.bg_status_on)
@@ -493,8 +709,8 @@ class AutomationAccessibilityService : AccessibilityService() {
                     current.workflow.steps.size,
                 )
                 binding.modeDetail.text = current.lastIssue?.let { "$progress\n$it" } ?: progress
-                binding.undoButton.visibility = View.GONE
-                binding.stopButton.setText(R.string.stop)
+                binding.recordingTools.visibility = View.GONE
+                binding.stopButton.setText(R.string.stop_running)
             }
             is SessionState.Outcome -> {
                 binding.modeIndicator.setBackgroundResource(
@@ -504,7 +720,7 @@ class AutomationAccessibilityService : AccessibilityService() {
                     if (current.success) R.string.overlay_done else R.string.overlay_failed,
                 )
                 binding.modeDetail.text = current.message
-                binding.undoButton.visibility = View.GONE
+                binding.recordingTools.visibility = View.GONE
                 binding.stopButton.setText(R.string.close)
             }
             SessionState.Idle -> Unit
@@ -537,9 +753,13 @@ class AutomationAccessibilityService : AccessibilityService() {
             val targetPackage: String,
             var recordedCount: Int = 0,
             var pendingText: PendingText? = null,
+            var pendingProgress: PendingProgress? = null,
+            var pendingScroll: PendingScroll? = null,
             var lastActionKey: String? = null,
             var lastActionAt: Long = 0,
-            val scrollPositions: MutableMap<String, ScrollPosition> = ConcurrentHashMap(),
+            var lastClickAt: Long = 0,
+            var ignoreBackUntil: Long = 0,
+            val scrollPositions: MutableMap<String, ScrollPosition> = mutableMapOf(),
         ) : SessionState
 
         data class Replaying(
@@ -557,10 +777,18 @@ class AutomationAccessibilityService : AccessibilityService() {
     }
 
     private data class PendingText(val selector: ElementSelector, val value: String)
+    private data class PendingProgress(val selector: ElementSelector, val value: Float)
+    private data class PendingScroll(
+        val type: ActionType,
+        val selector: ElementSelector,
+        val targetPosition: Int?,
+    )
     private data class ScrollPosition(val x: Int?, val y: Int?)
 
     companion object {
         private const val TEXT_DEBOUNCE_MS = 650L
+        private const val VALUE_DEBOUNCE_MS = 550L
+        private const val SELECT_AFTER_CLICK_WINDOW_MS = 500L
         private const val ACTION_SETTLE_MS = 650L
         private const val RETRY_MS = 350L
         private const val STEP_TIMEOUT_MS = 15_000L

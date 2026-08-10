@@ -35,7 +35,9 @@ class StepAdapter(
                 when (step.type) {
                     ActionType.CLICK -> R.string.action_click
                     ActionType.LONG_CLICK -> R.string.action_long_click
+                    ActionType.SELECT -> R.string.action_select
                     ActionType.SET_TEXT -> R.string.action_set_text
+                    ActionType.SET_PROGRESS -> R.string.action_set_progress
                     ActionType.SCROLL_UP -> R.string.action_scroll_up
                     ActionType.SCROLL_DOWN -> R.string.action_scroll_down
                     ActionType.SCROLL_LEFT -> R.string.action_scroll_left
@@ -45,10 +47,11 @@ class StepAdapter(
             )
             val selectorName = step.selector?.displayName().orEmpty()
                 .ifBlank { context.getString(R.string.unknown_element) }
-            elementName.text = if (step.type == ActionType.SET_TEXT) {
-                "$selectorName — ${context.getString(R.string.text_value_hidden, step.value.orEmpty().take(80))}"
-            } else {
-                selectorName
+            elementName.text = when (step.type) {
+                ActionType.SET_TEXT ->
+                    "$selectorName — ${context.getString(R.string.text_value_hidden, step.value.orEmpty().take(80))}"
+                ActionType.SET_PROGRESS -> "$selectorName — مقدار: ${step.value.orEmpty()}"
+                else -> selectorName
             }
             warning.visibility = if (step.selector != null && step.selector.semanticStrength == 0) {
                 View.VISIBLE

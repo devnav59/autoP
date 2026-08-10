@@ -7,12 +7,13 @@ import java.text.Normalizer
 
 /**
  * Finds a unique accessibility node using semantic properties only. Screen bounds are never read.
- * The hierarchy path has a deliberately tiny weight and cannot make an otherwise unsafe match pass.
+ * Position in the hierarchy has a deliberately tiny weight and cannot override semantic identity.
  */
 object NodeMatcher {
     private const val MAX_NODES = 5_000
     private const val MAX_DEPTH = 64
     private const val UNIQUE_MARGIN = 8
+    private const val MAX_CONTEXT_LABELS = 8
 
     sealed class Result {
         data class Found(val node: AccessibilityNodeInfo, val score: Int) : Result()
@@ -84,39 +85,54 @@ object NodeMatcher {
 
         val selectorDescription = normalized(selector.contentDescription)
         val nodeDescription = normalized(node.contentDescription?.toString())
-        if (selectorDescription != null && selectorDescription == nodeDescription) score += 65
+        val descriptionMatched = selectorDescription != null && selectorDescription == nodeDescription
+        if (descriptionMatched) score += 65
 
         val selectorText = normalized(selector.text)
         val nodeText = normalized(node.text?.toString())
-        if (selectorText != null && selectorText == nodeText) score += 55
+        val textMatched = selectorText != null && selectorText == nodeText
+        if (textMatched) score += 55
 
         val selectorHint = normalized(selector.hintText)
         val nodeHint = normalized(node.hintText?.toString())
-        if (selectorHint != null && selectorHint == nodeHint) score += 55
+        val hintMatched = selectorHint != null && selectorHint == nodeHint
+        if (hintMatched) score += 55
+
+        val expectedDescendants = selector.descendantLabels.mapNotNull(::normalized).toSet()
+        val candidateDescendants = if (expectedDescendants.isEmpty()) {
+            emptySet()
+        } else {
+            descendantLabels(node)
+        }
+        val descendantMatches = expectedDescendants.intersect(candidateDescendants).size
+        if (descendantMatches > 0) score += 52 + (descendantMatches - 1).coerceAtMost(2) * 12
+
+        val expectedSiblings = selector.siblingLabels.mapNotNull(::normalized).toSet()
+        if (expectedSiblings.isNotEmpty()) {
+            val siblingMatches = expectedSiblings.intersect(siblingLabels(node)).size
+            score += siblingMatches.coerceAtMost(4) * 5
+        }
 
         if (selector.editable == node.isEditable) score += 8
-        if (selector.clickable == node.isClickable) score += 4
+        if (selector.clickable == (node.isClickable || supportsAction(node, AccessibilityNodeInfo.ACTION_CLICK))) score += 5
         if (selector.scrollable == node.isScrollable) score += 5
+        if (selector.range == (node.rangeInfo != null)) score += 7
 
-        if (selector.ancestors.isNotEmpty()) {
-            score += ancestorScore(selector.ancestors, node)
-        }
+        if (selector.ancestors.isNotEmpty()) score += ancestorScore(selector.ancestors, node)
         if (
             selector.path.isNotEmpty() &&
             candidatePath.size >= selector.path.size &&
             selector.path == candidatePath.takeLast(selector.path.size)
         ) {
-            score += 6
+            score += 4
         }
 
-        // A semantic field without an ID must actually match; class/path alone are not enough.
+        // Without a resource ID, at least one available direct semantic label must match.
         if (selector.viewId.isNullOrBlank()) {
-            val directSemanticMatched =
-                (selectorDescription != null && selectorDescription == nodeDescription) ||
-                    (selectorText != null && selectorText == nodeText) ||
-                    (selectorHint != null && selectorHint == nodeHint)
-            val hasDirectSemantic = selectorDescription != null || selectorText != null || selectorHint != null
-            if (hasDirectSemantic && !directSemanticMatched) return Int.MIN_VALUE
+            val hasDirectSemantic = selectorDescription != null || selectorText != null ||
+                selectorHint != null || expectedDescendants.isNotEmpty()
+            val directMatched = descriptionMatched || textMatched || hintMatched || descendantMatches > 0
+            if (hasDirectSemantic && !directMatched) return Int.MIN_VALUE
         }
         return score
     }
@@ -125,11 +141,9 @@ object NodeMatcher {
     private fun ancestorScore(expected: List<NodeHint>, node: AccessibilityNodeInfo): Int {
         var score = 0
         var current = node.parent
-        for (hint in expected.take(4)) {
+        for (hint in expected.take(5)) {
             val candidate = current ?: break
-            if (!hint.viewId.isNullOrBlank() && hint.viewId == candidate.viewIdResourceName) {
-                score += 20
-            }
+            if (!hint.viewId.isNullOrBlank() && hint.viewId == candidate.viewIdResourceName) score += 20
             if (sameNonBlank(hint.contentDescription, candidate.contentDescription?.toString())) score += 14
             if (sameNonBlank(hint.text, candidate.text?.toString())) score += 12
             if (sameNonBlank(hint.className, candidate.className?.toString())) score += 3
@@ -141,15 +155,57 @@ object NodeMatcher {
         return score
     }
 
+    @Suppress("DEPRECATION")
+    private fun descendantLabels(node: AccessibilityNodeInfo): Set<String> {
+        val labels = linkedSetOf<String>()
+        fun visit(parent: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 2 || labels.size >= MAX_CONTEXT_LABELS) return
+            for (index in 0 until parent.childCount) {
+                if (labels.size >= MAX_CONTEXT_LABELS) break
+                val child = parent.getChild(index) ?: continue
+                normalized(child.contentDescription?.toString())?.let(labels::add)
+                normalized(child.text?.toString())?.let(labels::add)
+                normalized(child.hintText?.toString())?.let(labels::add)
+                visit(child, depth + 1)
+                child.recycle()
+            }
+        }
+        visit(node, 1)
+        return labels
+    }
+
+    @Suppress("DEPRECATION")
+    private fun siblingLabels(node: AccessibilityNodeInfo): Set<String> {
+        val parent = node.parent ?: return emptySet()
+        val labels = linkedSetOf<String>()
+        for (index in 0 until parent.childCount) {
+            if (labels.size >= MAX_CONTEXT_LABELS) break
+            val sibling = parent.getChild(index) ?: continue
+            if (sibling != node) {
+                normalized(sibling.contentDescription?.toString())?.let(labels::add)
+                normalized(sibling.text?.toString())?.let(labels::add)
+                if (labels.size < MAX_CONTEXT_LABELS) descendantLabels(sibling).take(2).forEach(labels::add)
+            }
+            sibling.recycle()
+        }
+        parent.recycle()
+        return labels
+    }
+
     private fun minimumScore(selector: ElementSelector): Int = when {
         !selector.viewId.isNullOrBlank() -> 95
         !selector.contentDescription.isNullOrBlank() -> 62
         !selector.text.isNullOrBlank() || !selector.hintText.isNullOrBlank() -> 52
+        selector.descendantLabels.isNotEmpty() -> 50
         selector.ancestors.any {
             !it.viewId.isNullOrBlank() || !it.text.isNullOrBlank() || !it.contentDescription.isNullOrBlank()
-        } -> 48
+        } -> 42
+        selector.clickable || selector.editable || selector.scrollable || selector.range -> 28
         else -> Int.MAX_VALUE
     }
+
+    private fun supportsAction(node: AccessibilityNodeInfo, actionId: Int): Boolean =
+        node.actionList.any { it.id == actionId }
 
     private fun sameNonBlank(first: String?, second: String?): Boolean {
         val a = normalized(first) ?: return false

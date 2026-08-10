@@ -7,7 +7,9 @@ import java.util.UUID
 enum class ActionType {
     CLICK,
     LONG_CLICK,
+    SELECT,
     SET_TEXT,
+    SET_PROGRESS,
     SCROLL_UP,
     SCROLL_DOWN,
     SCROLL_LEFT,
@@ -45,10 +47,15 @@ data class ElementSelector(
     val text: String? = null,
     val contentDescription: String? = null,
     val hintText: String? = null,
+    /** Labels exposed by children, useful for icon buttons and bottom navigation containers. */
+    val descendantLabels: List<String> = emptyList(),
+    /** Nearby semantic labels are context only; they never override a direct identity. */
+    val siblingLabels: List<String> = emptyList(),
     val editable: Boolean = false,
     val clickable: Boolean = false,
     val scrollable: Boolean = false,
-    /** Root-to-leaf accessibility-tree indexes. This is only a low-weight tie breaker, never a coordinate. */
+    val range: Boolean = false,
+    /** Root-to-leaf accessibility-tree indexes. A low-weight tie breaker, never a coordinate. */
     val path: List<Int> = emptyList(),
     /** Nearest parent first. */
     val ancestors: List<NodeHint> = emptyList(),
@@ -57,8 +64,9 @@ data class ElementSelector(
         get() = when {
             !viewId.isNullOrBlank() -> 4
             !contentDescription.isNullOrBlank() -> 3
-            !text.isNullOrBlank() || !hintText.isNullOrBlank() -> 2
+            !text.isNullOrBlank() || !hintText.isNullOrBlank() || descendantLabels.isNotEmpty() -> 2
             ancestors.any { !it.viewId.isNullOrBlank() || !it.text.isNullOrBlank() || !it.contentDescription.isNullOrBlank() } -> 1
+            siblingLabels.isNotEmpty() -> 1
             else -> 0
         }
 
@@ -69,7 +77,10 @@ data class ElementSelector(
         contentDescription.orEmpty(),
         text.orEmpty(),
         hintText.orEmpty(),
+        descendantLabels.joinToString("|"),
+        siblingLabels.joinToString("|"),
         if (editable) "editable" else "",
+        if (range) "range" else "",
         ancestors.joinToString("/") { "${it.viewId}|${it.className}|${it.text}|${it.contentDescription}" },
     ).joinToString("::")
 
@@ -78,6 +89,7 @@ data class ElementSelector(
         return contentDescription?.takeIf { it.isNotBlank() }
             ?: text?.takeIf { it.isNotBlank() }
             ?: hintText?.takeIf { it.isNotBlank() }
+            ?: descendantLabels.firstOrNull()
             ?: idTail?.takeIf { it.isNotBlank() }
             ?: className?.substringAfterLast('.')
             ?: ""
@@ -90,9 +102,12 @@ data class ElementSelector(
         putNullable("text", text)
         putNullable("contentDescription", contentDescription)
         putNullable("hintText", hintText)
+        put("descendantLabels", descendantLabels.toJsonArray())
+        put("siblingLabels", siblingLabels.toJsonArray())
         put("editable", editable)
         put("clickable", clickable)
         put("scrollable", scrollable)
+        put("range", range)
         put("path", JSONArray().apply { path.forEach { put(it) } })
         put("ancestors", JSONArray().apply { ancestors.forEach { put(it.toJson()) } })
     }
@@ -108,9 +123,12 @@ data class ElementSelector(
                 text = json.nullableString("text"),
                 contentDescription = json.nullableString("contentDescription"),
                 hintText = json.nullableString("hintText"),
+                descendantLabels = json.stringList("descendantLabels"),
+                siblingLabels = json.stringList("siblingLabels"),
                 editable = json.optBoolean("editable"),
                 clickable = json.optBoolean("clickable"),
                 scrollable = json.optBoolean("scrollable"),
+                range = json.optBoolean("range"),
                 path = buildList { for (index in 0 until pathJson.length()) add(pathJson.optInt(index, -1)) }
                     .filter { it >= 0 },
                 ancestors = buildList {
@@ -128,6 +146,8 @@ data class AutomationStep(
     val type: ActionType,
     val selector: ElementSelector? = null,
     val value: String? = null,
+    /** Final collection position after a semantic scroll; -1/null means unavailable. */
+    val targetPosition: Int? = null,
     val createdAt: Long = System.currentTimeMillis(),
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
@@ -135,6 +155,7 @@ data class AutomationStep(
         put("type", type.name)
         putNullable("selector", selector?.toJson())
         putNullable("value", value)
+        putNullable("targetPosition", targetPosition)
         put("createdAt", createdAt)
     }
 
@@ -146,6 +167,11 @@ data class AutomationStep(
                 type = type,
                 selector = json.optJSONObject("selector")?.let(ElementSelector::fromJson),
                 value = json.nullableString("value"),
+                targetPosition = if (json.has("targetPosition") && !json.isNull("targetPosition")) {
+                    json.optInt("targetPosition").takeIf { it >= 0 }
+                } else {
+                    null
+                },
                 createdAt = json.optLong("createdAt", System.currentTimeMillis()),
             )
         }
@@ -190,6 +216,17 @@ data class Workflow(
                 createdAt = json.optLong("createdAt", System.currentTimeMillis()),
                 updatedAt = json.optLong("updatedAt", System.currentTimeMillis()),
             )
+        }
+    }
+}
+
+private fun List<String>.toJsonArray(): JSONArray = JSONArray().apply { this@toJsonArray.forEach { put(it) } }
+
+private fun JSONObject.stringList(key: String): List<String> {
+    val array = optJSONArray(key) ?: return emptyList()
+    return buildList {
+        for (index in 0 until array.length()) {
+            array.optString(index).takeIf { it.isNotBlank() }?.let(::add)
         }
     }
 }

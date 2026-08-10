@@ -4,32 +4,67 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:background="@drawable/bg_overlay"
-    android:gravity="center_vertical"
     android:layoutDirection="rtl"
+    android:minWidth="210dp"
     android:orientation="vertical"
     android:padding="12dp">
 
     <LinearLayout
+        android:id="@+id/dragHandle"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="42dp"
+        android:background="?attr/selectableItemBackground"
+        android:contentDescription="@string/drag_overlay"
         android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <View
-            android:id="@+id/modeIndicator"
-            android:layout_width="10dp"
-            android:layout_height="10dp"
-            android:background="@drawable/bg_status_off" />
+        android:orientation="horizontal"
+        android:paddingHorizontal="3dp">
 
         <TextView
-            android:id="@+id/modeTitle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="@string/overlay_recording"
+            android:layout_width="28dp"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:text="↕"
             android:textColor="@color/white"
-            android:textSize="14sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="5dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <View
+                    android:id="@+id/modeIndicator"
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:background="@drawable/bg_status_off" />
+
+                <TextView
+                    android:id="@+id/modeTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/overlay_recording"
+                    android:textColor="@color/white"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/drag_overlay"
+                android:textColor="#BFFFFFFF"
+                android:textSize="10sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <TextView
@@ -37,40 +72,58 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:maxWidth="260dp"
+        android:maxWidth="270dp"
         android:textColor="#D8FFFFFF"
         android:textSize="12sp" />
 
     <LinearLayout
+        android:id="@+id/recordingTools"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="7dp"
+        android:layout_marginTop="8dp"
         android:gravity="end"
         android:orientation="horizontal">
 
         <Button
-            android:id="@+id/undoButton"
-            android:layout_width="wrap_content"
-            android:layout_height="38dp"
+            android:id="@+id/backButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginEnd="3dp"
+            android:layout_weight="1"
             android:backgroundTint="#33FFFFFF"
             android:minWidth="0dp"
-            android:paddingHorizontal="12dp"
-            android:text="@string/undo"
+            android:paddingHorizontal="8dp"
+            android:text="@string/record_back"
             android:textAllCaps="false"
             android:textColor="@color/white"
             android:textSize="11sp" />
 
         <Button
-            android:id="@+id/stopButton"
-            android:layout_width="wrap_content"
-            android:layout_height="38dp"
-            android:layout_marginStart="6dp"
-            android:backgroundTint="@color/primary"
+            android:id="@+id/undoButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="3dp"
+            android:layout_weight="1"
+            android:backgroundTint="#33FFFFFF"
             android:minWidth="0dp"
-            android:paddingHorizontal="14dp"
-            android:text="@string/stop"
+            android:paddingHorizontal="8dp"
+            android:text="@string/undo"
             android:textAllCaps="false"
             android:textColor="@color/white"
             android:textSize="11sp" />
     </LinearLayout>
+
+    <Button
+        android:id="@+id/stopButton"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_marginTop="7dp"
+        android:backgroundTint="@color/danger"
+        android:minWidth="180dp"
+        android:paddingHorizontal="14dp"
+        android:text="@string/stop_recording"
+        android:textAllCaps="false"
+        android:textColor="@color/white"
+        android:textSize="13sp"
+        android:textStyle="bold" />
 </LinearLayout>

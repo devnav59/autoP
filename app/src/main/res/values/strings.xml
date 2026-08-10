@@ -26,7 +26,7 @@
     <string name="run">اجرای گردش‌کار</string>
     <string name="clear_steps">پاک‌کردن مراحل</string>
     <string name="delete_workflow">حذف گردش‌کار</string>
-    <string name="record_help">بعد از شروع ضبط، برنامهٔ هدف باز می‌شود. کلیک، لمس طولانی، ورود متن، اسکرول و کلید بازگشت ثبت می‌شوند.</string>
+    <string name="record_help">بعد از شروع ضبط، برنامهٔ هدف باز می‌شود. کلیک، انتخاب منو و نویگیشن، لمس طولانی، ورود متن، اسکرول و مقدار کنترل‌های کشویی ثبت می‌شوند.</string>
     <string name="strict_help">اجرا فقط وقتی انجام می‌شود که یک المان یکتای معنایی پیدا شود؛ در حالت مبهم، اتوپی متوقف می‌شود تا روی المان اشتباه نزند.</string>
     <string name="steps_title">مراحل ضبط‌شده</string>
     <string name="empty_steps">هنوز مرحله‌ای ضبط نشده است.</string>
@@ -51,7 +51,10 @@
     <string name="overlay_done">اجرا کامل شد</string>
     <string name="overlay_failed">اجرا متوقف شد</string>
     <string name="undo">حذف آخرین</string>
-    <string name="stop">پایان</string>
+    <string name="record_back">ثبت بازگشت</string>
+    <string name="stop_recording">پایان و ذخیرهٔ ضبط</string>
+    <string name="stop_running">توقف اجرا</string>
+    <string name="drag_overlay">برای جابه‌جایی این قسمت را بکشید</string>
     <string name="close">بستن</string>
     <string name="step_progress">مرحله %1$d از %2$d</string>
     <string name="recorded_count">%1$d مرحله ثبت شد</string>
@@ -61,7 +64,9 @@
 
     <string name="action_click">کلیک</string>
     <string name="action_long_click">لمس طولانی</string>
+    <string name="action_select">انتخاب منو یا نویگیشن</string>
     <string name="action_set_text">ورود متن</string>
+    <string name="action_set_progress">تنظیم مقدار کنترل کشویی</string>
     <string name="action_scroll_up">اسکرول به بالا</string>
     <string name="action_scroll_down">اسکرول به پایین</string>
     <string name="action_scroll_left">اسکرول به چپ</string>
