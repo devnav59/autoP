@@ -59,7 +59,7 @@
 ./gradlew :app:assembleDebug
 ```
 
-خروجی debug در `app/build/outputs/apk/debug/` قرار می‌گیرد.
+خروجی debug در `app/build/outputs/apk/debug/` قرار می‌گیرد. قالب `workflow-files/android-ci.yml` نیز پس از هر build موفق، APK آزمایشی را به‌عنوان Artifact آپلود می‌کند و لینک دانلود آن را در **Job summary** همان صفحهٔ Action نشان می‌دهد. برای فعال‌سازی، آن را دستی در `.github/workflows/ci.yml` قرار دهید.
 
 ساخت release محلی بدون متغیرهای signing یک خروجی unsigned می‌سازد. برای signing همان چهار متغیر محیطی workflow را تنظیم کنید و سپس:
 
